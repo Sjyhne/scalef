@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from models.mlp import MLP
+from models.mlp_tcnn import MLPTcnn
 from models.nir import NIR
 
 
@@ -30,10 +31,25 @@ def get_direct_variances(num_samples, dimensions, freeze_first=True):
     return nn.ParameterList(params)
 
 
-def get_decoder(network_name, network_depth, input_dim, network_hidden_dim, output_dim=3):
+def get_decoder(
+    network_name,
+    network_depth,
+    input_dim,
+    network_hidden_dim,
+    output_dim=3,
+    tcnn_mlp_dtype="fp16",
+):
     if network_name == "mlp":
         return MLP(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)
+    elif network_name == "mlp_tcnn":
+        return MLPTcnn(
+            input_dim=input_dim,
+            hidden_dim=network_hidden_dim,
+            depth=network_depth,
+            output_dim=output_dim,
+            dtype=tcnn_mlp_dtype,
+        )
     elif network_name == "nir":
         return NIR(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)
     else:
-        raise ValueError(f"Network name {network_name} not recognized. Use 'mlp' or 'nir'.")
+        raise ValueError(f"Network name {network_name} not recognized. Use 'mlp', 'mlp_tcnn', or 'nir'.")
