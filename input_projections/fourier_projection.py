@@ -9,10 +9,12 @@ class FourierProjection(nn.Module):
     def __init__(self, input_dim=2, output_dim=256, scale=10.0, device=None):
         super(FourierProjection, self).__init__()
         self.input_dim = input_dim
-        self.output_dim = output_dim // 2  # sin + cos each
+        self.n_bands = output_dim // 2  # sin + cos each
+        self.output_dim = output_dim
+        self.projection_output_dim = output_dim
         self.scale = scale
         self.device = device
-        B = torch.randn(self.output_dim, self.input_dim)
+        B = torch.randn(self.n_bands, self.input_dim)
         # Keep buffer on default device during init; the parent module `.to(device)`
         # and `input_mapping` handle placement at runtime.
         self.register_buffer("B", B)
@@ -22,7 +24,8 @@ class FourierProjection(nn.Module):
         x_proj = (2. * np.pi * x) @ B.T
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
 
-    def forward(self, x, fs=None):
+    def forward(self, x, fs=None, progress=None):
+        del progress
         if fs is not None:
             current_scale = fs
             if isinstance(fs, torch.Tensor):

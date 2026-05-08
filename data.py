@@ -10,6 +10,8 @@ import glob
 
 import tifffile
 
+from input_projections.coord_utils import make_normalized_grid
+
 def get_and_standardize_image(image):
     """Per-channel zero mean, unit std. Handles 2D, 3D (HWC/CHW), 4D. Returns (standardized, mean, std)."""
     if image.dim() == 2:
@@ -50,31 +52,50 @@ def get_and_standardize_image(image):
     return (image - mean) / std, mean, std
 
 def get_dataset(args, name='satburst', keep_in_memory=True):
+    scale_factor = getattr(args, "scale_factor", None)
+    if scale_factor is None:
+        scale_factor = int(getattr(args, "df", 4))
     if name == 'satburst_synth':
-        return SRData(data_dir=args.root_satburst_synth, num_samples=args.num_samples, keep_in_memory=keep_in_memory, scale_factor=args.scale_factor)
+        return SRData(
+            data_dir=args.root_satburst_synth,
+            num_samples=args.num_samples,
+            keep_in_memory=keep_in_memory,
+            scale_factor=scale_factor,
+            device=getattr(args, "resolved_device", None),
+            use_raw_b432=bool(getattr(args, "use_raw_b432", False)),
+        )
     elif name == 'burst_synth':
         return SyntheticBurstVal(data_dir=args.root_burst_synth, 
                                  sample_id=args.sample_id, keep_in_memory=keep_in_memory, 
-                                 scale_factor=args.scale_factor, df=args.df, num_samples=args.num_samples)
+                                 scale_factor=scale_factor, df=args.df, num_samples=args.num_samples)
     elif name == 'worldstrat':
         return WorldStratDatasetFrame(data_dir=args.root_worldstrat, 
                                       area_name=args.area_name, hr_size=args.worldstrat_hr_size)
     elif name == 'worldstrat_test':
         args.root_worldstrat_test = "worldstrat_test_data"
         return WorldStratTestDataset(data_dir=args.root_worldstrat_test, 
-                                     sample_id=args.sample_id, keep_in_memory=keep_in_memory, scale_factor=args.scale_factor)
+                                     sample_id=args.sample_id, keep_in_memory=keep_in_memory, scale_factor=scale_factor)
     else:
         raise ValueError(f"Invalid dataset name: {name}")
 
 
 class SRData(torch.utils.data.Dataset):
-    def __init__(self, data_dir, num_samples, keep_in_memory=False, scale_factor=4, device=None):
+    def __init__(
+        self,
+        data_dir,
+        num_samples,
+        keep_in_memory=False,
+        scale_factor=4,
+        device=None,
+        use_raw_b432: bool = False,
+    ):
         self.data_dir = Path(data_dir)
         self.keep_in_memory = keep_in_memory
         self.num_samples = num_samples
-        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.vmin, self.vmax = 0, 1
+        _dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(_dev) if not isinstance(_dev, torch.device) else _dev
+        self.vmin, self.vmax = 0.0, 1.0
+        self.use_raw_b432 = bool(use_raw_b432)
         
         with open(self.data_dir / "transform_log.json", 'r') as f:
             self.transform_log = json.load(f)
@@ -90,33 +111,65 @@ class SRData(torch.utils.data.Dataset):
         if self.keep_in_memory:
             self.images = {}
             for sample in self.samples:
-                img_path = self.data_dir / self.transform_log[sample]['path']
-                img = cv2.imread(str(img_path))
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img = torch.from_numpy(img).float() / 255.0
+                img = self._load_sample_image(sample)
                 img, mean, std = get_and_standardize_image(img)
-                self.lr_image_sizes.append(img.shape[1:3])
+                self.lr_image_sizes.append(img.shape[:2])
                 self.images[sample] = {
                     "image": img,
                     "mean": mean,
                     "std": std
                 }
+        else:
+            # Record spatial size even when loading samples on demand.
+            for sample in self.samples:
+                img = self._load_sample_image(sample)
+                self.lr_image_sizes.append(img.shape[:2])
 
-        # Load original image for reference
-        self.original = cv2.imread(str(self.data_dir / "hr_ground_truth.png"))
-        self.original = cv2.cvtColor(self.original, cv2.COLOR_BGR2RGB)
-        self.original = (torch.from_numpy(self.original).float() / 255.0).to(self.device)
-        # Standardize original image to have zero mean and no bias
+        if self.use_raw_b432:
+            # No true S2 HR exists. For eval compatibility, mirror the PNG placeholder
+            # semantics in reflectance space: bicubic upsample raw sample_00.
+            lr0 = self._load_sample_image(self.samples[0]).cpu().numpy()
+            lr_h, lr_w = lr0.shape[:2]
+            hr_h = int(lr_h * scale_factor)
+            hr_w = int(lr_w * scale_factor)
+            original = cv2.resize(lr0, (hr_w, hr_h), interpolation=cv2.INTER_CUBIC)
+            self.original = torch.from_numpy(np.clip(original, 0.0, None)).float().to(self.device)
+        else:
+            # Load original image for reference/evaluation (this is the *true* HR patch).
+            original = cv2.imread(str(self.data_dir / "hr_ground_truth.png"))
+            original = cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
+            self.original = (torch.from_numpy(original).float() / 255.0).to(self.device)
 
-        self.hr_coords = np.linspace(self.vmin, self.vmax, self.original.shape[0], endpoint=False)
-        self.hr_coords = np.stack(np.meshgrid(self.hr_coords, self.hr_coords), -1)
-        self.hr_coords = torch.FloatTensor(self.hr_coords).to(self.device)
+        hr_h, hr_w = self.original.shape[:2]
+        self.hr_coords = make_normalized_grid(
+            hr_h, hr_w, vmin=0.0, vmax=1.0, pixel_center=True, device=self.device
+        )
 
-        self.lr_coords = np.linspace(self.vmin, self.vmax, self.lr_image_sizes[0][0], endpoint=False)
-        self.lr_coords = np.stack(np.meshgrid(self.lr_coords, self.lr_coords), -1)
-        self.lr_coords = torch.FloatTensor(self.lr_coords).to(self.device)
+        lr_h, lr_w = self.lr_image_sizes[0]
+        self.lr_coords = make_normalized_grid(
+            lr_h, lr_w, vmin=self.vmin, vmax=self.vmax, pixel_center=True, device=self.device
+        )
 
         self.scale_factor = [scale_factor]
+
+    def _load_sample_image(self, sample: str) -> torch.Tensor:
+        sample_info = self.transform_log[sample]
+        if self.use_raw_b432:
+            raw_name = sample_info.get("raw_reflectance_npz")
+            if raw_name is None:
+                raise FileNotFoundError(
+                    f"{sample} has no raw_reflectance_npz entry. Re-export with "
+                    "--raw_b432_folder, or run without --use_raw_b432."
+                )
+            raw_path = self.data_dir / raw_name
+            with np.load(raw_path) as data:
+                img = data["reflectance_b432"].astype(np.float32)
+            return torch.from_numpy(np.clip(img, 0.0, None)).float()
+
+        img_path = self.data_dir / sample_info['path']
+        img = cv2.imread(str(img_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return torch.from_numpy(img).float() / 255.0
 
     def __len__(self):
         return len(self.samples)
@@ -124,9 +177,17 @@ class SRData(torch.utils.data.Dataset):
     def get_input_coordinates(self):
         scale_factor = random.choice(self.scale_factor)
 
-        input_coordinates = np.linspace(self.vmin, self.vmax, int(self.lr_image_sizes[0][0] * scale_factor), endpoint=False)
-        input_coordinates = np.stack(np.meshgrid(input_coordinates, input_coordinates), -1)
-        input_coordinates = torch.FloatTensor(input_coordinates).to(self.device)
+        lr_h, lr_w = self.lr_image_sizes[0]
+        hr_h = int(lr_h * scale_factor)
+        hr_w = int(lr_w * scale_factor)
+        input_coordinates = make_normalized_grid(
+            hr_h,
+            hr_w,
+            vmin=self.vmin,
+            vmax=self.vmax,
+            pixel_center=True,
+            device=self.device,
+        )
         return input_coordinates, scale_factor
     
     def __getitem__(self, idx):
@@ -142,10 +203,7 @@ class SRData(torch.utils.data.Dataset):
             std = self.images[sample_name]["std"]
         else:
             # Load transformed image
-            img_path = self.data_dir / sample_info['path']
-            img = cv2.imread(str(img_path))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = torch.from_numpy(img).float() / 255.0
+            img = self._load_sample_image(sample_name)
             img, mean, std = get_and_standardize_image(img)
         
         return {
@@ -187,10 +245,7 @@ class SRData(torch.utils.data.Dataset):
             # Unstandardize the image
             img = img * std + mean
         else:
-            sample_path = self.data_dir / f"sample_{index:02d}.png"
-            img = cv2.imread(str(sample_path))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = torch.from_numpy(img).float() / 255.0
+            img = self._load_sample_image(self.samples[index])
 
         return img
 
@@ -280,10 +335,7 @@ class SyntheticBurstVal(torch.utils.data.Dataset):
         # Create coordinate grid for HR image
         if self.keep_in_memory:
             h, w = self.gt_image.shape[:-1]
-            coords_h = np.linspace(0, 1, h, endpoint=False)
-            coords_w = np.linspace(0, 1, w, endpoint=False)
-            coords = np.stack(np.meshgrid(coords_h, coords_w), -1)  # Note: w, h order
-            self.hr_coords = torch.FloatTensor(coords).cuda()
+            self.hr_coords = make_normalized_grid(h, w, pixel_center=True, device="cuda")
         else:
             self.hr_coords = None
         
@@ -308,10 +360,9 @@ class SyntheticBurstVal(torch.utils.data.Dataset):
         input_h = int(h * scale_factor)
         input_w = int(w * scale_factor)
         
-        input_coords_h = np.linspace(self.vmin, self.vmax, input_h, endpoint=False)
-        input_coords_w = np.linspace(self.vmin, self.vmax, input_w, endpoint=False)
-        input_coordinates = np.stack(np.meshgrid(input_coords_w, input_coords_h), -1)
-        input_coordinates = torch.FloatTensor(input_coordinates).cuda()
+        input_coordinates = make_normalized_grid(
+            input_h, input_w, vmin=self.vmin, vmax=self.vmax, pixel_center=True, device="cuda"
+        )
         return input_coordinates, scale_factor
     
     def _read_burst_image(self, frame_idx):
@@ -512,10 +563,7 @@ class SyntheticBurstVal(torch.utils.data.Dataset):
         else:  # CHW format
             h, w = gt.shape[1:]
             
-        coords_h = np.linspace(0, 1, h, endpoint=False)
-        coords_w = np.linspace(0, 1, w, endpoint=False)
-        coords = np.stack(np.meshgrid(coords_h, coords_w), -1)
-        return torch.FloatTensor(coords)
+        return make_normalized_grid(h, w, pixel_center=True)
 
 
 
@@ -545,9 +593,8 @@ class WorldStratDatasetFrame(torch.utils.data.Dataset):
         
 
         # Create input coordinate grid that matches the HR image
-        self.hr_coords = np.linspace(0, 1, self.hr_image.shape[0], endpoint=False)
-        self.hr_coords = np.stack(np.meshgrid(self.hr_coords, self.hr_coords), -1)
-        self.hr_coords = torch.FloatTensor(self.hr_coords)
+        hr_h, hr_w = self.hr_image.shape[:2]
+        self.hr_coords = make_normalized_grid(hr_h, hr_w, pixel_center=True)
     
     def __len__(self):
         """Number of LR frames available for this area."""
@@ -699,14 +746,14 @@ class WorldStratTestDataset(torch.utils.data.Dataset):
         
         # Generate coordinate grids following SRData pattern
         # HR coordinates
-        self.hr_coords = np.linspace(self.vmin, self.vmax, self.hr_h, endpoint=False)
-        self.hr_coords = np.stack(np.meshgrid(self.hr_coords, self.hr_coords), -1)
-        self.hr_coords = torch.FloatTensor(self.hr_coords).cuda()
+        self.hr_coords = make_normalized_grid(
+            self.hr_h, self.hr_w, vmin=self.vmin, vmax=self.vmax, pixel_center=True, device="cuda"
+        )
         
         # LR coordinates (for reference, following SRData pattern)
-        self.lr_coords = np.linspace(self.vmin, self.vmax, self.lr_size, endpoint=False)
-        self.lr_coords = np.stack(np.meshgrid(self.lr_coords, self.lr_coords), -1)
-        self.lr_coords = torch.FloatTensor(self.lr_coords).cuda()
+        self.lr_coords = make_normalized_grid(
+            self.lr_size, self.lr_size, vmin=self.vmin, vmax=self.vmax, pixel_center=True, device="cuda"
+        )
         
         # Initialize lists for LR data (following SRData pattern)
         self.lr_image_sizes = []
@@ -787,9 +834,10 @@ class WorldStratTestDataset(torch.utils.data.Dataset):
         scale_factor = random.choice(self.scale_factor)
         
         # Follow SRData pattern: use lr_size for square coordinates
-        input_coordinates = np.linspace(self.vmin, self.vmax, int(self.lr_size * scale_factor), endpoint=False)
-        input_coordinates = np.stack(np.meshgrid(input_coordinates, input_coordinates), -1)
-        input_coordinates = torch.FloatTensor(input_coordinates).cuda()
+        input_size = int(self.lr_size * scale_factor)
+        input_coordinates = make_normalized_grid(
+            input_size, input_size, vmin=self.vmin, vmax=self.vmax, pixel_center=True, device="cuda"
+        )
         return input_coordinates, scale_factor
     
     def __getitem__(self, idx):

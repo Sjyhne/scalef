@@ -23,6 +23,15 @@ def get_learnable_transforms(num_samples, coordinate_dim=2, zeros=True, freeze_f
     return nn.ParameterList(params)
 
 
+def get_learnable_affines(num_samples, freeze_first=True):
+    """Return per-sample learnable 2x3 affine params initialized to identity."""
+    identity = torch.tensor([[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]], dtype=torch.float32)
+    params = []
+    for i in range(num_samples):
+        params.append(nn.Parameter(identity.clone(), requires_grad=(i != 0) if freeze_first else True))
+    return nn.ParameterList(params)
+
+
 def get_direct_variances(num_samples, dimensions, freeze_first=True):
     if freeze_first:
         params = [nn.Parameter(torch.zeros(dimensions) if i != 0 else nn.Parameter(torch.zeros(dimensions)), requires_grad=(i != 0)) for i in range(num_samples)]
@@ -38,9 +47,17 @@ def get_decoder(
     network_hidden_dim,
     output_dim=3,
     tcnn_mlp_dtype="fp16",
+    mlp_init="kaiming",
+    device=None,
 ):
     if network_name == "mlp":
-        return MLP(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)
+        return MLP(
+            input_dim=input_dim,
+            hidden_dim=network_hidden_dim,
+            depth=network_depth,
+            output_dim=output_dim,
+            init_scheme=mlp_init,
+        )
     elif network_name == "mlp_tcnn":
         return MLPTcnn(
             input_dim=input_dim,
@@ -48,6 +65,7 @@ def get_decoder(
             depth=network_depth,
             output_dim=output_dim,
             dtype=tcnn_mlp_dtype,
+            device=device,
         )
     elif network_name == "nir":
         return NIR(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)

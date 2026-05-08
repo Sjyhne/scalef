@@ -12,7 +12,7 @@ except ImportError:
 class MLPTcnn(nn.Module):
     """tiny-cuda-nn backed MLP decoder with INR-compatible interface."""
 
-    def __init__(self, input_dim, hidden_dim, depth=4, output_dim=3, dtype="fp16"):
+    def __init__(self, input_dim, hidden_dim, depth=4, output_dim=3, dtype="fp16", device=None):
         super().__init__()
         if tcnn is None:
             raise ImportError(
@@ -30,6 +30,17 @@ class MLPTcnn(nn.Module):
         if self.dtype not in {"fp16", "fp32"}:
             raise ValueError("MLPTcnn dtype must be 'fp16' or 'fp32'.")
 
+        target_device = torch.device(device) if device is not None else None
+        use_cuda_device = (
+            target_device is not None
+            and target_device.type == "cuda"
+            and torch.cuda.is_available()
+        )
+        prev_cuda_device = None
+        if use_cuda_device:
+            prev_cuda_device = torch.cuda.current_device()
+            torch.cuda.set_device(target_device)
+
         network_config = {
             "otype": "FullyFusedMLP",
             "activation": "ReLU",
@@ -38,10 +49,18 @@ class MLPTcnn(nn.Module):
             "n_hidden_layers": self.depth - 1,
         }
         try:
-            self._network = tcnn.Network(self.input_dim, self.output_dim, network_config)
-        except Exception:
-            network_config["otype"] = "CutlassMLP"
-            self._network = tcnn.Network(self.input_dim, self.output_dim, network_config)
+            try:
+                self._network = tcnn.Network(self.input_dim, self.output_dim, network_config)
+            except Exception:
+                network_config["otype"] = "CutlassMLP"
+                self._network = tcnn.Network(self.input_dim, self.output_dim, network_config)
+        finally:
+            if use_cuda_device and prev_cuda_device is not None and prev_cuda_device != target_device.index:
+                try:
+                    torch.cuda.set_device(prev_cuda_device)
+                except RuntimeError:
+                    # Keep chosen target device if default/current device is unavailable.
+                    pass
 
         if self.dtype == "fp32":
             warnings.warn(
@@ -50,6 +69,9 @@ class MLPTcnn(nn.Module):
                 UserWarning,
                 stacklevel=2,
             )
+
+        if target_device is not None:
+            self.to(target_device)
 
     def forward(self, x):
         orig_shape = x.shape[:-1]

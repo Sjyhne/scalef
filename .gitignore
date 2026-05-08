@@ -173,6 +173,8 @@ cython_debug/
 
 
 data/
+all_data/
+s2_norway/
 final_mask_vis/
 results/
 wandb/
@@ -232,3 +234,6 @@ handheld/single_exposure_data/
 handheld/synthetic burst/
 handheld/handheld_synthetic/
 handheld/data
+node_modules
+node_modules
+node_modules

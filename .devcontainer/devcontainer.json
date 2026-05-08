@@ -1,0 +1,50 @@
+{
+  "name": "scalef (Python + CUDA + tiny-cuda-nn)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspaces/scalef",
+
+  "runArgs": ["--gpus", "all"],
+  "hostRequirements": {
+    "gpu": "optional"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "ms-python.pytest",
+        "charliermarsh.ruff",
+        "ms-python.black-formatter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "ruff.lineLength": 100
+      }
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/nvidia-cuda:2": {
+      "installToolkit": true,
+      "cudaVersion": "12.2",
+      "installCudnn": false
+    }
+  },
+
+  "postCreateCommand": "bash -c 'pip install -e \".[dev]\" && pip install \"git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch\"'",
+  "remoteUser": "vscode"
+}

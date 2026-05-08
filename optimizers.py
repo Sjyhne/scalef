@@ -105,7 +105,6 @@ class Muon(Optimizer):
                     grad,
                     momentum_buffer,
                     beta=momentum,
-                    ns_steps=ns_steps,
                     nesterov=nesterov,
                 )
                 p.add_(update.to(p.dtype), alpha=-lr)
@@ -116,14 +115,28 @@ class Muon(Optimizer):
 def build_optimizer(params, args):
     params = list(params)
     optimizer_name = args.optimizer.lower()
+    param_groups = _build_optimizer_param_groups(params, args)
+    if optimizer_name == "adam":
+        return torch.optim.Adam(
+            param_groups,
+            lr=args.learning_rate,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps,
+        )
     if optimizer_name == "adamw":
-        return torch.optim.AdamW(params, lr=args.learning_rate, weight_decay=args.weight_decay)
+        return torch.optim.AdamW(
+            param_groups,
+            lr=args.learning_rate,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps,
+            weight_decay=args.weight_decay,
+        )
     if optimizer_name == "muon":
-        invalid_shapes = [tuple(p.shape) for p in params if p.requires_grad and p.ndim < 2]
+        invalid_shapes = [tuple(p.shape) for p in params if p.requires_grad and p.ndim != 2]
         if invalid_shapes:
             raise RuntimeError(
-                "Strict Muon selected, but found parameters with ndim < 2. "
-                f"Unsupported shapes: {invalid_shapes[:8]}"
+                "Muon requires all parameters to be 2D. "
+                f"Found other shapes: {invalid_shapes[:8]}"
             )
         return Muon(
             params,
@@ -135,3 +148,9 @@ def build_optimizer(params, args):
             eps=args.muon_eps,
         )
     raise ValueError(f"Unsupported optimizer: {args.optimizer}")
+
+
+def _build_optimizer_param_groups(params, args):
+    if not hasattr(args, "_optimizer_model") or args._optimizer_model is None:
+        return params
+    return params
