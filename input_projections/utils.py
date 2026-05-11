@@ -54,9 +54,14 @@ def get_input_projection(
             input_dim=input_dim, output_dim=output_dim, scale=fourier_scale, device=device
         )
     if name == "hashgrid_tcnn":
+        _ = coord_margin  # Deprecated/ignored: hashgrid is fixed to the base-frame [0,1] domain.
+        dev_type = getattr(device, "type", None) if device is not None else None
+        if dev_type == "cpu":
+            raise RuntimeError(
+                "hashgrid_tcnn requires CUDA and tinycudann (HashGrid is not supported on CPU)."
+            )
         from input_projections.hashgrid_tcnn import HashGridTcnn
 
-        _ = coord_margin  # Deprecated/ignored: hashgrid is fixed to the base-frame [0,1] domain.
         return HashGridTcnn(
             input_dim=input_dim,
             n_levels=hash_n_levels,

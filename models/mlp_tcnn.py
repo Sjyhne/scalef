@@ -5,7 +5,8 @@ import torch.nn as nn
 
 try:
     import tinycudann as tcnn
-except ImportError:
+except (ImportError, OSError):
+    # OSError: e.g. tinycudann "Unknown compute capability" when no CUDA GPU is visible.
     tcnn = None
 
 

@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import numpy as np
 
 from models.mlp import MLP
-from models.mlp_tcnn import MLPTcnn
 from models.nir import NIR
 
 
@@ -59,6 +58,8 @@ def get_decoder(
             init_scheme=mlp_init,
         )
     elif network_name == "mlp_tcnn":
+        from models.mlp_tcnn import MLPTcnn
+
         return MLPTcnn(
             input_dim=input_dim,
             hidden_dim=network_hidden_dim,
@@ -70,4 +71,6 @@ def get_decoder(
     elif network_name == "nir":
         return NIR(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)
     else:
-        raise ValueError(f"Network name {network_name} not recognized. Use 'mlp', 'mlp_tcnn', or 'nir'.")
+        raise ValueError(
+            f"Network name {network_name} not recognized. Use 'mlp', 'mlp_tcnn', or 'nir'."
+        )
