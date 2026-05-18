@@ -45,6 +45,6 @@
     }
   },
 
-  "postCreateCommand": "bash -c 'pip install -e \".[dev]\" && pip install \"git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch\"'",
+  "postCreateCommand": "bash -c 'pip install -e \".[dev]\" && TCNN_CUDA_ARCHITECTURES=\"${TCNN_CUDA_ARCHITECTURES:-90}\" pip install -v \"git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch\"'",
   "remoteUser": "vscode"
 }

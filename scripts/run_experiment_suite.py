@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -15,9 +16,13 @@ class Experiment:
     args: list[str]
 
 
-def _run(cmd: list[str]) -> None:
+def _run(cmd: list[str], *, cuda_expandable_segments: bool = False) -> None:
     print("\n$ " + " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True)
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    if cuda_expandable_segments and "PYTORCH_CUDA_ALLOC_CONF" not in env:
+        env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    subprocess.run(cmd, env=env, check=True)
 
 
 def _read_metrics(metrics_path: Path) -> dict:
@@ -25,16 +30,61 @@ def _read_metrics(metrics_path: Path) -> dict:
         return json.load(f)
 
 
-def _discover_satburst_samples(repo_root: Path) -> list[str]:
-    data_dir = repo_root / "data"
+def _max_lr_side_from_scene(scene_dir: Path, scale_leaf: str) -> int | None:
+    """Read reference LR ``H,W`` from ``transform_log.json`` (first sorted key)."""
+    tl = scene_dir / scale_leaf / "transform_log.json"
+    if not tl.is_file():
+        return None
+    with tl.open("r") as f:
+        log = json.load(f)
+    for k in sorted(log.keys()):
+        sh = log[k].get("shape")
+        if isinstance(sh, (list, tuple)) and len(sh) >= 2:
+            return max(int(sh[0]), int(sh[1]))
+    return None
+
+
+def _min_lr_side_from_scene(scene_dir: Path, scale_leaf: str) -> int | None:
+    """Smallest LR side across all entries in ``transform_log.json`` for a scene."""
+    tl = scene_dir / scale_leaf / "transform_log.json"
+    if not tl.is_file():
+        return None
+    with tl.open("r") as f:
+        log = json.load(f)
+    sides: list[int] = []
+    for v in log.values():
+        sh = v.get("shape") if isinstance(v, dict) else None
+        if isinstance(sh, (list, tuple)) and len(sh) >= 2:
+            sides.append(min(int(sh[0]), int(sh[1])))
+    return min(sides) if sides else None
+
+
+def _discover_satburst_samples(
+    repo_root: Path, data_root: str, df: int, lr_shift: float, aug: str, *, max_lr_side: int = 0
+) -> list[str]:
+    data_dir = repo_root / data_root
     if not data_dir.exists():
         raise FileNotFoundError(f"Expected data directory at {data_dir}")
-    sample_ids = [
-        p.name
+    scale_leaf = f"scale_{df}_shift_{lr_shift:.1f}px_aug_{aug}"
+    candidates = [
+        p
         for p in data_dir.iterdir()
-        if p.is_dir() and not p.name.startswith(".") and p.name != "__pycache__"
+        if p.is_dir()
+        and not p.name.startswith(".")
+        and p.name != "__pycache__"
+        and (p / scale_leaf).is_dir()
     ]
-    sample_ids.sort()
+    sample_ids: list[str] = []
+    skipped = 0
+    for p in sorted(candidates, key=lambda x: x.name):
+        if max_lr_side and max_lr_side > 0:
+            side = _max_lr_side_from_scene(p, scale_leaf)
+            if side is not None and side > max_lr_side:
+                skipped += 1
+                continue
+        sample_ids.append(p.name)
+    if max_lr_side and max_lr_side > 0 and skipped:
+        print(f"Skipped {skipped} scene(s) with LR max side > {max_lr_side} (--max_lr_side).", flush=True)
     return sample_ids
 
 
@@ -55,7 +105,7 @@ def _write_rows_json(path: Path, rows: list[dict]) -> None:
 
 
 def _plan_hashgrid_args() -> list[str]:
-    """HashGrid hyperparameters for the TTO suite (tuned for satburst_synth; decoder input = n_levels * n_features)."""
+    """HashGrid hyperparameters for the suite (decoder input = n_levels * n_features)."""
     return [
         "--input_projection",
         "hashgrid_tcnn",
@@ -78,135 +128,39 @@ def _plan_hashgrid_args() -> list[str]:
     ]
 
 
-def _superf_baseline_mlp_args() -> list[str]:
-    """Fourier SuperF baseline (M0): classic wide MLP."""
+def _suite_mlp_args() -> list[str]:
     return ["--model", "mlp", "--network_depth", "4", "--network_hidden_dim", "256"]
 
 
-def _hashgrid_mlp_args() -> list[str]:
-    """HashGrid runs (M1+): smaller MLP than the Fourier baseline."""
-    return ["--model", "mlp", "--network_depth", "3", "--network_hidden_dim", "64"]
-
-
 def _fourier_baseline_mlp() -> list[str]:
-    return ["--input_projection", "fourier_10", *_superf_baseline_mlp_args()]
+    return ["--input_projection", "fourier_10", *_suite_mlp_args()]
 
 
-def build_experiment_suite(*, include_scale_gates: bool) -> list[Experiment]:
-    """
-    TTO-only SuperF ablations (``tto_only_superf_improvement_plan.md``): M0–M4 core + optional M6 gates.
-    """
+def build_experiment_suite() -> list[Experiment]:
+    """SuperF Fourier features vs SuperF HashGrid (same MLP decoder)."""
     hg = _plan_hashgrid_args()
-    hm = _hashgrid_mlp_args()
+    hm = _suite_mlp_args()
     fb = _fourier_baseline_mlp()
-
-    suite: list[Experiment] = [
+    return [
         Experiment(
             name="m0_superf_fourier",
             args=[*fb, "--run_name", "m0_superf_fourier"],
         ),
         Experiment(
             name="m1_hashgrid_superf",
-            args=[*hg, *hm, "--hash_scale_attention", "none", "--run_name", "m1_hashgrid_superf"],
-        ),
-        Experiment(
-            name="m2_progressive_hashgrid",
-            args=[
-                *hg,
-                *hm,
-                "--progressive_hashgrid",
-                "--hash_scale_attention",
-                "none",
-                "--run_name",
-                "m2_progressive_hashgrid",
-            ],
-        ),
-        Experiment(
-            name="m3_progressive_radiometric",
-            args=[
-                *hg,
-                *hm,
-                "--progressive_hashgrid",
-                "--radiometric",
-                "gain_offset",
-                "--hash_scale_attention",
-                "none",
-                "--run_name",
-                "m3_progressive_radiometric",
-            ],
-        ),
-        Experiment(
-            name="m4_progressive_robust_charbonnier",
-            args=[
-                *hg,
-                *hm,
-                "--progressive_hashgrid",
-                "--radiometric",
-                "gain_offset",
-                "--recon_loss",
-                "charbonnier",
-                "--hash_scale_attention",
-                "none",
-                "--run_name",
-                "m4_progressive_robust_charbonnier",
-            ],
+            args=[*hg, *hm, "--run_name", "m1_hashgrid_superf"],
         ),
     ]
 
-    if include_scale_gates:
-        base_m4 = [
-            *hg,
-            *hm,
-            "--progressive_hashgrid",
-            "--radiometric",
-            "gain_offset",
-            "--recon_loss",
-            "charbonnier",
-            "--hash_scale_warmup_iterations",
-            "300",
-        ]
-        suite.extend(
-            [
-                Experiment(
-                    name="m6_scalegate_softmax",
-                    args=[
-                        *base_m4,
-                        "--hash_scale_attention",
-                        "softmax",
-                        "--run_name",
-                        "m6_scalegate_softmax",
-                    ],
-                ),
-                Experiment(
-                    name="m6_scalegate_sigmoid",
-                    args=[
-                        *base_m4,
-                        "--hash_scale_attention",
-                        "sigmoid",
-                        "--run_name",
-                        "m6_scalegate_sigmoid",
-                    ],
-                ),
-                Experiment(
-                    name="m6_scalegate_softmax_coord",
-                    args=[
-                        *base_m4,
-                        "--hash_scale_attention",
-                        "softmax",
-                        "--hash_scale_coord_gate",
-                        "--run_name",
-                        "m6_scalegate_softmax_coord",
-                    ],
-                ),
-            ]
-        )
-
-    return suite
-
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run experiment suite across satburst samples.")
-    parser.add_argument("--dataset", default="satburst_synth")
+    parser = argparse.ArgumentParser(description="Run Fourier vs HashGrid SuperF on satburst samples.")
+    parser.add_argument(
+        "--dataset",
+        default="satburst_synth",
+        choices=["satburst_synth", "satburst_real"],
+        help="satburst_synth: scenes under data/. satburst_real: scenes under data_real/ (default root).",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--df", type=int, default=4)
     parser.add_argument("--lr_shift", type=float, default=1.0)
@@ -224,9 +178,14 @@ def main() -> int:
         help="Random seed passed through to optimize.py (torch/numpy/python).",
     )
     parser.add_argument(
-        "--no_scale_gates",
-        action="store_true",
-        help="Skip optional M6 scale-gate experiments (M0–M4 core only).",
+        "--satburst_data_root",
+        type=str,
+        default=None,
+        help=(
+            "Override scene parent folder. Default: ``data`` for satburst_synth, ``data_real`` for "
+            "satburst_real. Scenes without a matching ``scale_<df>_shift_<lr_shift>px_aug_<aug>/`` "
+            "subfolder are skipped."
+        ),
     )
     parser.add_argument(
         "--limit_samples",
@@ -234,14 +193,49 @@ def main() -> int:
         default=0,
         help="If >0, only run the first N discovered samples (smoke tests).",
     )
+    parser.add_argument(
+        "--max_lr_side",
+        type=int,
+        default=0,
+        help="If >0, skip scenes whose reference LR max(H,W) from transform_log exceeds this (optional sweep filter).",
+    )
+    parser.add_argument(
+        "--eval_crop_lr_size",
+        type=str,
+        default="auto",
+        help=(
+            "Pass-through to optimize.py --eval_crop_lr_size so per-scene SR/GT/bilinear are "
+            "center-cropped to the same physical area before metrics+viz. "
+            "Integer (e.g. 64) forces an explicit crop; ``auto`` (default) auto-detects the "
+            "smallest LR side across discovered scenes (e.g. picks 64 across {64,128,256,512}); "
+            "``0``/``off``/``none`` disables cropping."
+        ),
+    )
+    parser.add_argument(
+        "--cuda_expandable_segments",
+        action="store_true",
+        help=(
+            "Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True for each optimize subprocess "
+            "(can reduce fragmentation; off by default—some drivers/stacks error on first CUDA alloc)."
+        ),
+    )
     args = parser.parse_args()
 
     dataset = str(args.dataset)
     device = str(args.device)
 
+    if args.satburst_data_root:
+        data_root = str(args.satburst_data_root).strip().rstrip("/")
+    elif dataset == "satburst_real":
+        data_root = "data_real"
+    else:
+        data_root = "data"
+
     common = [
         "--dataset",
         dataset,
+        "--satburst_data_root",
+        data_root,
         "--df",
         str(args.df),
         "--lr_shift",
@@ -266,18 +260,64 @@ def main() -> int:
         device,
     ]
 
-    suite = build_experiment_suite(include_scale_gates=not bool(args.no_scale_gates))
+    suite = build_experiment_suite()
     repo_root = Path(__file__).resolve().parents[1]
-    sample_ids = _discover_satburst_samples(repo_root)
+    sample_ids = _discover_satburst_samples(
+        repo_root,
+        data_root,
+        int(args.df),
+        float(args.lr_shift),
+        str(args.aug),
+        max_lr_side=int(args.max_lr_side),
+    )
     if args.limit_samples and args.limit_samples > 0:
         sample_ids = sample_ids[: int(args.limit_samples)]
     if not sample_ids:
-        raise RuntimeError(f"No samples found under {repo_root / 'data'}")
+        raise RuntimeError(
+            f"No samples found under {repo_root / data_root} with scale folder "
+            f"scale_{args.df}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
+        )
 
-    print(
-        f"Suite: {len(suite)} experiments/sample, scale_gates={'off' if args.no_scale_gates else 'on'}",
-        flush=True,
-    )
+    if dataset == "satburst_real":
+        print(
+            "Note (data_real): scenes can use different LR/HR sizes; metrics are per-scene. "
+            "See data_real/README.txt.",
+            flush=True,
+        )
+
+    # Resolve --eval_crop_lr_size: int / auto / 0|off|none. ``auto`` picks the smallest LR side
+    # across discovered scenes so a 64/128/256/512 sweep is anchored on the 64 patch area.
+    eval_crop_raw = str(args.eval_crop_lr_size).strip().lower()
+    scale_leaf = f"scale_{int(args.df)}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
+    if eval_crop_raw in {"0", "off", "none", "no", "false", ""}:
+        eval_crop_lr_size = 0
+    elif eval_crop_raw == "auto":
+        sides: list[int] = []
+        for sid in sample_ids:
+            s = _min_lr_side_from_scene(repo_root / data_root / sid, scale_leaf)
+            if s is not None and s > 0:
+                sides.append(int(s))
+        eval_crop_lr_size = min(sides) if sides else 0
+        if eval_crop_lr_size > 0:
+            print(
+                f"Auto-detected --eval_crop_lr_size={eval_crop_lr_size} (smallest LR side across "
+                f"{len(sample_ids)} scene(s)).",
+                flush=True,
+            )
+        else:
+            print(
+                "Auto-detect for --eval_crop_lr_size found no usable LR sides; cropping disabled.",
+                flush=True,
+            )
+    else:
+        try:
+            eval_crop_lr_size = max(0, int(eval_crop_raw))
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid --eval_crop_lr_size {args.eval_crop_lr_size!r}: expected int, 'auto', or 'off'."
+            ) from exc
+
+    print(f"Suite: {len(suite)} experiments/sample (Fourier + HashGrid), data_root={data_root!r}", flush=True)
 
     all_rows: list[dict] = []
 
@@ -287,15 +327,20 @@ def main() -> int:
 
         for exp in suite:
             exp_args = [*common, "--sample_id", sample_id, *exp.args]
-            _run([sys.executable, str(repo_root / "optimize.py"), *exp_args])
+            if eval_crop_lr_size > 0:
+                exp_args = [*exp_args, "--eval_crop_lr_size", str(int(eval_crop_lr_size))]
+            _run(
+                [sys.executable, str(repo_root / "optimize.py"), *exp_args],
+                cuda_expandable_segments=bool(args.cuda_expandable_segments),
+            )
             metrics_path = (
                 repo_root / "single_samples" / dataset / sample_id / exp.name / "metrics.json"
             )
             if not metrics_path.exists():
                 raise FileNotFoundError(f"Expected metrics at {metrics_path}")
             m = _read_metrics(metrics_path)
-            stats = m.get("hash_scale_attn_stats") or {}
 
+            ec = m.get("eval_crop", {}) or {}
             row = {
                 "experiment": exp.name,
                 "seed": int(args.seed),
@@ -303,17 +348,9 @@ def main() -> int:
                 "sample_id": m.get("sample_id"),
                 "df": m.get("downsampling_factor"),
                 "model": m.get("model"),
-                "progressive_hashgrid": m.get("progressive_hashgrid"),
-                "radiometric": m.get("radiometric"),
-                "recon_loss": m.get("recon_loss"),
-                "hash_scale_attention": m.get("hash_scale_attention"),
-                "hash_scale_coord_gate": m.get("hash_scale_coord_gate"),
-                "hash_scale_coord_lowfreq_pe": m.get("hash_scale_coord_lowfreq_pe"),
-                "hash_scale_gate_uses_coordinates": m.get("hash_scale_gate_uses_coordinates"),
-                "hash_scale_mean_entropy": stats.get("mean_entropy"),
-                "hash_scale_coarse_mass": stats.get("coarse_mass_mean"),
-                "hash_scale_mid_mass": stats.get("mid_mass_mean"),
-                "hash_scale_fine_mass": stats.get("fine_mass_mean"),
+                "input_projection": m.get("input_projection"),
+                "hash_base_resolution": m.get("hash_base_resolution"),
+                "hash_max_resolution": m.get("hash_max_resolution"),
                 "iters": m.get("iterations"),
                 "psnr_model": m.get("psnr", {}).get("model"),
                 "psnr_bilinear": m.get("psnr", {}).get("bilinear"),
@@ -324,6 +361,9 @@ def main() -> int:
                 "lpips_model": m.get("lpips", {}).get("model"),
                 "lpips_bilinear": m.get("lpips", {}).get("bilinear"),
                 "lpips_improvement": m.get("lpips", {}).get("improvement"),
+                "eval_crop_applied": bool(ec.get("applied", False)),
+                "eval_crop_lr": ec.get("lr_crop"),
+                "eval_crop_hr": ec.get("hr_crop"),
                 "total_runtime_seconds": m.get("training", {}).get("total_runtime_seconds"),
                 "ttq_psnr_seconds": m.get("training", {}).get("ttq_psnr_seconds"),
                 "ttq_psnr_iteration": m.get("training", {}).get("ttq_psnr_iteration"),

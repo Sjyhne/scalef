@@ -55,7 +55,7 @@ def get_dataset(args, name='satburst', keep_in_memory=True):
     scale_factor = getattr(args, "scale_factor", None)
     if scale_factor is None:
         scale_factor = int(getattr(args, "df", 4))
-    if name == 'satburst_synth':
+    if name in ("satburst_synth", "satburst_real"):
         return SRData(
             data_dir=args.root_satburst_synth,
             num_samples=args.num_samples,

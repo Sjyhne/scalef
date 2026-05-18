@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from models.progressive_hashgrid import level_mask_vector
+from models.lr_alignment import align_prediction_hwc_to_target, default_lr_align_args
 from models.utils import get_learnable_affines
 
 
@@ -19,8 +19,8 @@ class ChannelAffine1x1(nn.Module):
 
 class INRBase(nn.Module):
     """
-    Base INR: affine transform, input projection, decoder, color shift.
-    Optional: hash-level scale gates, progressive HashGrid masking, per-frame radiometry.
+    SuperF-style INR: per-frame affine alignment, input projection (Fourier or HashGrid),
+    MLP decoder, optional per-frame color shift.
     """
 
     def __init__(
@@ -29,11 +29,6 @@ class INRBase(nn.Module):
         decoder,
         num_samples,
         coordinate_dim=2,
-        hash_scale_attention=None,
-        hash_n_levels: int | None = None,
-        hash_n_features_per_level: int | None = None,
-        radiometric=None,
-        hash_gate_warmup_iters: int = 0,
     ):
         super().__init__()
 
@@ -44,15 +39,6 @@ class INRBase(nn.Module):
         self.num_samples = num_samples
 
         self.use_gnll = False
-
-        self.hash_scale_attention = hash_scale_attention
-        self.hash_n_levels = int(hash_n_levels) if hash_n_levels is not None else None
-        self.hash_n_features_per_level = (
-            int(hash_n_features_per_level) if hash_n_features_per_level is not None else None
-        )
-        self.last_hash_scale_stats: dict | None = None
-        self.radiometric = radiometric
-        self.hash_gate_warmup_iters = int(hash_gate_warmup_iters)
 
         self.affine_params = get_learnable_affines(num_samples=num_samples, freeze_first=True)
 
@@ -102,7 +88,7 @@ class INRBase(nn.Module):
             )
 
     def _encode_and_decode(self, coords, sample_idx, progress=None):
-        """Core path: affine -> projection -> decoder. Returns (output, shifts, warped_coords)."""
+        """Affine -> projection -> MLP. Returns (output, shifts, warped_coords)."""
         B, H, W, C = coords.shape
         A = self.get_direct_affine(sample_idx)
         dx_list = A[:, 0, 2]
@@ -115,40 +101,9 @@ class INRBase(nn.Module):
         else:
             projected = warped_q
 
-        if (
-            progress
-            and progress.get("progressive")
-            and self.hash_n_levels is not None
-            and self.hash_n_features_per_level is not None
-        ):
-            lv = level_mask_vector(
-                int(progress.get("iteration", 0)),
-                self.hash_n_levels,
-                self.hash_n_features_per_level,
-                device=projected.device,
-            ).to(dtype=projected.dtype)
-            projected = projected * lv.view(1, 1, 1, -1)
-
-        self.last_hash_scale_stats = None
         n_pix = B * H * W
-        q_flat = warped_q.reshape(n_pix, C)
         raw_flat = projected.reshape(n_pix, -1)
-
-        iter_i = int(progress.get("iteration", 10**9)) if progress else 10**9
-        warm = int(progress.get("hash_gate_warmup_iters", self.hash_gate_warmup_iters)) if progress else self.hash_gate_warmup_iters
-        gate_bypass = self.hash_scale_attention is not None and warm > 0 and iter_i < warm
-
-        if self.hash_scale_attention is not None and not gate_bypass:
-            if self.hash_n_levels is None or self.hash_n_features_per_level is None:
-                raise ValueError("hash_scale_attention needs hash_n_levels and hash_n_features_per_level")
-            nl, nf = self.hash_n_levels, self.hash_n_features_per_level
-            h_lv = projected.view(B, H, W, nl, nf).reshape(n_pix, nl, nf)
-            use_q = self.hash_scale_attention.use_coord_in_gate
-            z_flat, stats = self.hash_scale_attention(h_lv, q_flat if use_q else None)
-            self.last_hash_scale_stats = stats
-            output_flat = self.decoder(z_flat)
-        else:
-            output_flat = self.decoder(raw_flat)
+        output_flat = self.decoder(raw_flat)
         output = output_flat.reshape(B, H, W, -1)
 
         shifts = [dx_list, dy_list]
@@ -158,32 +113,21 @@ class INRBase(nn.Module):
         self,
         coords,
         sample_idx=None,
-        scale_factor=None,
-        training=True,
         lr_frames=None,
         progress=None,
+        lr_align_args=None,
+        **kwargs,
     ):
-        output, shifts, warped_coords = self._encode_and_decode(coords, sample_idx, progress=progress)
+        del kwargs  # callers may pass scale_factor, training (e.g. GNLL path in optimize.py)
+        output, shifts, _ = self._encode_and_decode(coords, sample_idx, progress=progress)
         output = output[:, :, :, :3]
         output = self.apply_color_transform(output, sample_idx)
-        if self.radiometric is not None:
-            output = self.radiometric(output, sample_idx)
 
-        if scale_factor is not None:
-            if torch.is_tensor(scale_factor):
-                if scale_factor.unique().numel() == 1 and float(scale_factor.unique().item()) == 1.0:
-                    pass
-                else:
-                    raise ValueError(
-                        "INRBase.forward(scale_factor!=1) is no longer supported. "
-                        "Render at HR and downsample outside the model."
-                    )
-            else:
-                if float(scale_factor) != 1.0:
-                    raise ValueError(
-                        "INRBase.forward(scale_factor!=1) is no longer supported. "
-                        "Render at HR and downsample outside the model."
-                    )
+        if lr_frames is not None:
+            aargs = lr_align_args if lr_align_args is not None else default_lr_align_args()
+            output = align_prediction_hwc_to_target(
+                output, lr_frames, args=aargs, device=output.device
+            )
 
         return output, shifts
 
@@ -194,11 +138,6 @@ def get_inr(
     num_samples,
     use_gnll=False,
     coordinate_dim=2,
-    hash_scale_attention=None,
-    hash_n_levels: int | None = None,
-    hash_n_features_per_level: int | None = None,
-    radiometric=None,
-    hash_gate_warmup_iters: int = 0,
     **kwargs,
 ):
     """Build the simplified MSE INR. Extra kwargs are ignored for compatibility."""
@@ -209,11 +148,6 @@ def get_inr(
         decoder,
         num_samples,
         coordinate_dim=coordinate_dim,
-        hash_scale_attention=hash_scale_attention,
-        hash_n_levels=hash_n_levels,
-        hash_n_features_per_level=hash_n_features_per_level,
-        radiometric=radiometric,
-        hash_gate_warmup_iters=hash_gate_warmup_iters,
     )
 
 
