@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: ASMSpotter-29-3-1_rgb
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 30.64 dB
+    - Bilinear Interpolation: 30.44 dB
+    - PSNR Improvement: 0.20 dB
+
+    SSIM Results:
+    - Model Output: 0.7841
+    - Bilinear Interpolation: 0.8345
+    - SSIM Improvement: -0.0505
+
+    LPIPS Results:
+    - Model Output: 0.3805
+    - Bilinear Interpolation: 0.3530
+    - LPIPS Improvement: -0.0274
+
+    Training Results:
+    - Final Test Loss: 0.000864
+    - Final Test PSNR: 30.64 dB
+    - Final Reconstruction Loss: 0.009316
+    - Final Transformation Loss: 0.015064
+    - Final Total Loss: 0.009316
+
+    Timing:
+    - Training time: 11.91 s (0.20 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0060 s
+    - Final evaluation time: 3.39 s
+    - Total runtime: 15.30 s (0.25 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 22.96 - 30.64 dB
+- Reconstruction loss range: 0.009316 - 0.166213
+- Transformation loss range: 0.014477 - 0.019114
+- Total loss range: 0.009316 - 0.166213
+- Final PSNR: 30.64 dB
+- Final reconstruction loss: 0.009316
+- Final transformation loss: 0.015064
+- Final total loss: 0.009316

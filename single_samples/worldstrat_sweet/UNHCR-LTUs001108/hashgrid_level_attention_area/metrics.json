@@ -1,0 +1,75 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "UNHCR-LTUs001108",
+  "run_name": "hashgrid_level_attention_area",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id UNHCR-LTUs001108 --input_projection hashgrid --hash_n_levels 16 --hash_n_features_per_level 2 --hash_log2_hashmap_size 21 --hash_base_resolution 0 --hash_max_resolution 0 --hash_encoding_dtype fp32 --hash_encoding_preset smoothstep_grid --hash_grid_type Hash --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model hash_attn --hash_attn_token_dim 32 --log_attention --lr_degradation area --run_name hashgrid_level_attention_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "hash_attn",
+  "input_projection": "hashgrid_tcnn",
+  "hash_base_resolution": 16,
+  "hash_max_resolution": 64,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 32.73334503173828,
+    "bilinear": 32.6601676940918,
+    "improvement": 0.07317733764648438
+  },
+  "ssim": {
+    "model": 0.8269920945167542,
+    "bilinear": 0.8360326290130615,
+    "improvement": -0.009040534496307373
+  },
+  "lpips": {
+    "model": 0.44494718313217163,
+    "bilinear": 0.49566173553466797,
+    "improvement": 0.05071455240249634
+  },
+  "training": {
+    "final_test_loss": 0.000532924197614193,
+    "final_test_psnr": 32.73334503173828,
+    "final_recon_loss": 0.08167152106761932,
+    "final_trans_loss": 0.0001593507056701964,
+    "final_total_loss": 0.08167152106761932,
+    "completed_iterations": 2000,
+    "training_time_seconds": 13.707009315490723,
+    "time_per_iteration_seconds": 0.0068535046577453615,
+    "evaluation_time_seconds": 3.206407070159912,
+    "total_runtime_seconds": 16.913419246673584
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  },
+  "attention": {
+    "mean_by_level": [
+      0.046951375901699066,
+      0.04726729542016983,
+      0.048078037798404694,
+      0.04796253889799118,
+      0.04798504337668419,
+      0.049498796463012695,
+      0.05027099698781967,
+      0.05170471966266632,
+      0.05358542129397392,
+      0.05804413557052612,
+      0.06380274891853333,
+      0.06623505055904388,
+      0.0787525475025177,
+      0.08328354358673096,
+      0.09654068201780319,
+      0.11003707349300385
+    ],
+    "entropy_mean": 2.7219223976135254,
+    "fine_mass_last3": 0.2898612916469574
+  }
+}

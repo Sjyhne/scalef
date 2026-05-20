@@ -60,6 +60,9 @@ from utils import (
 )
 
 
+WORLDSTRAT_DATASETS = ("worldstrat_test", "worldstrat_sweet", "worldstrat_bitter")
+
+
 def resolve_satburst_data_root(args) -> str:
     """Parent directory with one subfolder per scene; each scene contains ``scale_<df>_...``."""
     r = getattr(args, "satburst_data_root", None)
@@ -70,9 +73,53 @@ def resolve_satburst_data_root(args) -> str:
     return "data"
 
 
+def resolve_worldstrat_data_root(args) -> str:
+    """Parent directory with one subfolder per area (each has ``hr/`` and ``lr/``)."""
+    r = getattr(args, "worldstrat_data_root", None)
+    if r is not None and str(r).strip():
+        return str(r).strip().rstrip("/")
+    ds = getattr(args, "dataset", "")
+    if ds == "worldstrat_sweet":
+        return "worldstrat_datasets/worldstrat_sweet"
+    if ds == "worldstrat_bitter":
+        return "worldstrat_datasets/worldstrat_bitter"
+    return "worldstrat_test_data"
+
+
+def discover_worldstrat_sample_ids(data_root: str | Path) -> list[str]:
+    """Area names under a WorldStrat root (each subdir must contain ``hr/`` and ``lr/``)."""
+    root = Path(data_root)
+    if not root.is_dir():
+        return []
+    out: list[str] = []
+    for p in sorted(root.iterdir(), key=lambda x: x.name):
+        if not p.is_dir() or p.name.startswith("."):
+            continue
+        if (p / "hr").is_dir() and (p / "lr").is_dir():
+            out.append(p.name)
+    return out
+
+
 def satburst_scene_dir(args) -> str:
     root = resolve_satburst_data_root(args)
     return f"{root}/{args.sample_id}/scale_{args.df}_shift_{args.lr_shift:.1f}px_aug_{args.aug}"
+
+
+def _lr_max_side_from_worldstrat_scene(args) -> int | None:
+    """LR crop side used by ``WorldStratTestDataset`` (center crop, capped at 64)."""
+    if getattr(args, "dataset", "") not in WORLDSTRAT_DATASETS:
+        return None
+    lr_dir = Path(resolve_worldstrat_data_root(args)) / str(args.sample_id) / "lr"
+    if not lr_dir.is_dir():
+        return None
+    paths = sorted(lr_dir.glob("*.png"))
+    if not paths:
+        return None
+    img = cv2.imread(str(paths[0]))
+    if img is None:
+        return None
+    h, w = img.shape[:2]
+    return min(min(h, w), 64)
 
 
 def _lr_max_side_from_satburst_scene(args) -> int | None:
@@ -112,6 +159,8 @@ def resolve_hash_grid_resolutions(args, *, canon: str | None = None) -> tuple[in
     explicit_base = int(getattr(args, "hash_base_resolution", 0) or 0)
 
     lr_side = _lr_max_side_from_satburst_scene(args)
+    if lr_side is None:
+        lr_side = _lr_max_side_from_worldstrat_scene(args)
     if explicit_max > 0:
         hash_max = explicit_max
     elif lr_side is not None and lr_side > 0:
@@ -1673,25 +1722,25 @@ def main():
         "--s2_psf_sigma_b02_m",
         type=float,
         default=3.8,
-        help="PSF σ in meters for channel 0 (S2 B02).",
+        help="PSF σ in meters for channel 2 / blue (S2 B02; RGB ch2).",
     )
     parser.add_argument(
         "--s2_psf_sigma_b03_m",
         type=float,
         default=3.5,
-        help="PSF σ in meters for channel 1 (S2 B03).",
+        help="PSF σ in meters for channel 1 / green (S2 B03; RGB ch1).",
     )
     parser.add_argument(
         "--s2_psf_sigma_b04_m",
         type=float,
         default=3.5,
-        help="PSF σ in meters for channel 2 (S2 B04).",
+        help="PSF σ in meters for channel 0 / red (S2 B04; RGB ch0).",
     )
     parser.add_argument(
         "--s2_psf_sigma_b08_m",
         type=float,
         default=4.0,
-        help="PSF σ in meters for S2 B08 (four-channel paths only; RGB uses B02–B04).",
+        help="PSF σ in meters for S2 B08 (four-channel paths only; RGB uses B04–B02).",
     )
     parser.add_argument(
         "--scale_factor", type=float, default=4, help="scale factor for the input training grid"
@@ -1704,6 +1753,15 @@ def main():
             "Parent folder for satburst-style scenes (subfolder per scene, then scale_*). "
             "Default: ``data`` for dataset satburst_synth, ``data_real`` for satburst_real. "
             "Real exports may use different LR/HR spatial sizes per scene; SRData reads each scene's manifest."
+        ),
+    )
+    parser.add_argument(
+        "--worldstrat_data_root",
+        type=str,
+        default=None,
+        help=(
+            "Parent folder for WorldStrat areas (subfolder per area with hr/ and lr/). "
+            "Default: ``worldstrat_datasets/worldstrat_{sweet,bitter}`` or ``worldstrat_test_data``."
         ),
     )
 
@@ -1966,6 +2024,8 @@ def main():
     # Setup dataset
     if args.dataset in ("satburst_synth", "satburst_real"):
         args.root_satburst_synth = satburst_scene_dir(args)
+    elif args.dataset in WORLDSTRAT_DATASETS:
+        args.root_worldstrat_test = resolve_worldstrat_data_root(args)
     elif args.dataset == "burst_synth":
         args.root_burst_synth = "SyntheticBurstVal"
         # Convert sample_id to integer for burst_synth dataset
@@ -1987,21 +2047,11 @@ def main():
         output_dir.mkdir(exist_ok=True)
 
         # Get all samples in the dataset
-        if args.dataset in ["worldstrat_test", "worldstrat_sweet", "worldstrat_bitter"]:
-            # For worldstrat_test, we need to get all sample IDs
-            from data import WorldStratTestDataset
-
-            if args.dataset == "worldstrat_test":
-                data_root = "worldstrat_test_data"
-            elif args.dataset == "worldstrat_sweet":
-                data_root = "worldstrat_datasets/worldstrat_sweet"
-            else:
-                data_root = "worldstrat_datasets/worldstrat_bitter"
-            # Hint to downstream loaders which root to use (if supported)
+        if args.dataset in WORLDSTRAT_DATASETS:
+            data_root = resolve_worldstrat_data_root(args)
             os.environ["WORLDSTRAT_TEST_ROOT"] = str(data_root)
-            sample_dirs = [d for d in Path(data_root).iterdir() if d.is_dir()]
-            sample_ids = [d.name for d in sample_dirs]
-            print(f"Found {len(sample_ids)} samples: {sample_ids[:5]}...")
+            sample_ids = discover_worldstrat_sample_ids(data_root)
+            print(f"Found {len(sample_ids)} WorldStrat areas under {data_root}: {sample_ids[:5]}...")
         elif args.dataset == "burst_synth":
             # For burst_synth, get all sample IDs from the gt folder
             if "DATA_DIR_ABSOLUTE" in os.environ:
@@ -2051,10 +2101,9 @@ def main():
             if args.dataset in ("satburst_synth", "satburst_real"):
                 args.root_satburst_synth = satburst_scene_dir(args)
 
-            dataset_name_for_loader = args.dataset
-            if args.dataset in ["worldstrat_sweet", "worldstrat_bitter"]:
-                dataset_name_for_loader = "worldstrat_test"
-            train_data = get_dataset(args=args, name=dataset_name_for_loader)
+            if args.dataset in WORLDSTRAT_DATASETS:
+                args.root_worldstrat_test = resolve_worldstrat_data_root(args)
+            train_data = get_dataset(args=args, name=args.dataset)
 
             input_projection, decoder = build_input_projection_decoder_bundle(
                 args, device, output_dim=output_dim
@@ -2538,6 +2587,7 @@ def main():
         "run_name": args.run_name,
         "command": shlex.join(sys.argv),
         "downsampling_factor": args.df,
+        "lr_degradation": str(getattr(args, "lr_degradation", "area")),
         "model": args.model,
         "input_projection": args.input_projection,
         "hash_base_resolution": int(getattr(args, "hash_base_resolution", 0)),

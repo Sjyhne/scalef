@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Amnesty POI-5-2-1_rgb",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id 'Amnesty POI-5-2-1_rgb' --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 35.754608154296875,
+    "bilinear": 34.8807487487793,
+    "improvement": 0.8738594055175781
+  },
+  "ssim": {
+    "model": 0.8924942016601562,
+    "bilinear": 0.8528595566749573,
+    "improvement": 0.039634644985198975
+  },
+  "lpips": {
+    "model": 0.256368488073349,
+    "bilinear": 0.3727266788482666,
+    "improvement": 0.1163581907749176
+  },
+  "training": {
+    "final_test_loss": 0.0002657900913618505,
+    "final_test_psnr": 35.75461149215698,
+    "final_recon_loss": 0.003227127715945244,
+    "final_trans_loss": 0.012867544772159225,
+    "final_total_loss": 0.003227127715945244,
+    "completed_iterations": 2000,
+    "training_time_seconds": 10.217557907104492,
+    "time_per_iteration_seconds": 0.005108778953552246,
+    "evaluation_time_seconds": 3.211352825164795,
+    "total_runtime_seconds": 13.428912162780762
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

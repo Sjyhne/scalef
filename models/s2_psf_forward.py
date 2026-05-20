@@ -9,6 +9,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# PNG RGB and reflectance_b432 (B4,B3,B2): ch0=R/B04, ch1=G/B03, ch2=B/B02.
+S2_RGB_BAND_ORDER: tuple[str, ...] = ("B04", "B03", "B02")
+
 
 def gaussian_kernel1d(
     sigma_px: float,
@@ -72,7 +75,7 @@ def degrade_sr_to_s2_lr(
     sr: torch.Tensor,
     scale: int,
     sigma_m_by_band: dict[str, float] | Mapping[str, float] | None = None,
-    band_order: tuple[str, ...] = ("B02", "B03", "B04", "B08"),
+    band_order: tuple[str, ...] = (*S2_RGB_BAND_ORDER, "B08"),
     native_gsd_m: float = 10.0,
     *,
     truncate: float = 4.0,
@@ -85,7 +88,8 @@ def degrade_sr_to_s2_lr(
         sr: [C,H,W] or [B,C,H,W] high-resolution image
         scale: e.g. 4 for 2.5 m → 10 m when native_gsd_m is 10
         sigma_m_by_band: Gaussian PSF sigma in meters per band key. If None, only area-pools.
-        band_order: band order in ``sr`` channels (length must match C)
+        band_order: band order in ``sr`` channels (length must match C). Default matches
+            PNG RGB / ``reflectance_b432`` (B04, B03, B02).
         native_gsd_m: Sentinel-2 native GSD in meters (normally 10.0)
         truncate: Gaussian radius in sigma units for kernel support
 
@@ -146,7 +150,7 @@ class S2PSFForward(nn.Module):
         self,
         scale_factor: int,
         sigma_m_by_band: Mapping[str, float],
-        band_order: Sequence[str] = ("B02", "B03", "B04"),
+        band_order: Sequence[str] = S2_RGB_BAND_ORDER,
         native_gsd_m: float = 10.0,
         truncate: float = 4.0,
     ):

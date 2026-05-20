@@ -1,0 +1,53 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "UNHCR-ROUs002531",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id UNHCR-ROUs002531 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 23.423686981201172,
+    "bilinear": 23.64743995666504,
+    "improvement": -0.2237529754638672
+  },
+  "ssim": {
+    "model": 0.4958808422088623,
+    "bilinear": 0.5205004811286926,
+    "improvement": -0.024619638919830322
+  },
+  "lpips": {
+    "model": 0.4663972854614258,
+    "bilinear": 0.5381490588188171,
+    "improvement": 0.07175177335739136
+  },
+  "training": {
+    "final_test_loss": 0.004546019248664379,
+    "final_test_psnr": 23.423688411712646,
+    "final_recon_loss": 0.04042953997850418,
+    "final_trans_loss": 0.00011771370854305205,
+    "final_total_loss": 0.04042953997850418,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.591664552688599,
+    "time_per_iteration_seconds": 0.0047958322763443,
+    "evaluation_time_seconds": 3.1263372898101807,
+    "total_runtime_seconds": 12.718003511428833
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

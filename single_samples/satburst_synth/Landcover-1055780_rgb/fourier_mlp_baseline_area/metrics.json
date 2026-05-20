@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-1055780_rgb",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id Landcover-1055780_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 36.79643249511719,
+    "bilinear": 28.57100486755371,
+    "improvement": 8.225427627563477
+  },
+  "ssim": {
+    "model": 0.9444417357444763,
+    "bilinear": 0.8110364079475403,
+    "improvement": 0.13340532779693604
+  },
+  "lpips": {
+    "model": 0.12115193903446198,
+    "bilinear": 0.3333488702774048,
+    "improvement": 0.2121969312429428
+  },
+  "training": {
+    "final_test_loss": 0.00020910122839268297,
+    "final_test_psnr": 36.79643392562866,
+    "final_recon_loss": 0.001194771844893694,
+    "final_trans_loss": 0.012848352743707991,
+    "final_total_loss": 0.001194771844893694,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.745462417602539,
+    "time_per_iteration_seconds": 0.0038727312088012696,
+    "evaluation_time_seconds": 3.405759334564209,
+    "total_runtime_seconds": 11.151223421096802
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-772328_rgb",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id Landcover-772328_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 26.954715728759766,
+    "bilinear": 27.32716941833496,
+    "improvement": -0.3724536895751953
+  },
+  "ssim": {
+    "model": 0.7899362444877625,
+    "bilinear": 0.6636244654655457,
+    "improvement": 0.1263117790222168
+  },
+  "lpips": {
+    "model": 0.32839012145996094,
+    "bilinear": 0.4367906153202057,
+    "improvement": 0.10840049386024475
+  },
+  "training": {
+    "final_test_loss": 0.002032083924859762,
+    "final_test_psnr": 26.920583248138428,
+    "final_recon_loss": 0.005651077255606651,
+    "final_trans_loss": 0.011152487764011799,
+    "final_total_loss": 0.005651077255606651,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.994770288467407,
+    "time_per_iteration_seconds": 0.004997385144233704,
+    "evaluation_time_seconds": 3.1716532707214355,
+    "total_runtime_seconds": 13.166425228118896
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

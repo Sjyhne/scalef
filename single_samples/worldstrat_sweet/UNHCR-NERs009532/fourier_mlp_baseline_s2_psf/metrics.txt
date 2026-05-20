@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: UNHCR-NERs009532
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 22.13 dB
+    - Bilinear Interpolation: 21.98 dB
+    - PSNR Improvement: 0.14 dB
+
+    SSIM Results:
+    - Model Output: 0.4666
+    - Bilinear Interpolation: 0.4632
+    - SSIM Improvement: 0.0034
+
+    LPIPS Results:
+    - Model Output: 0.5162
+    - Bilinear Interpolation: 0.5916
+    - LPIPS Improvement: 0.0754
+
+    Training Results:
+    - Final Test Loss: 0.006126
+    - Final Test PSNR: 22.13 dB
+    - Final Reconstruction Loss: 0.335715
+    - Final Transformation Loss: 0.000133
+    - Final Total Loss: 0.335715
+
+    Timing:
+    - Training time: 9.79 s (0.16 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0049 s
+    - Final evaluation time: 3.15 s
+    - Total runtime: 12.93 s (0.22 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 22.03 - 22.55 dB
+- Reconstruction loss range: 0.047129 - 0.352460
+- Transformation loss range: 0.000079 - 0.000133
+- Total loss range: 0.047129 - 0.352460
+- Final PSNR: 22.13 dB
+- Final reconstruction loss: 0.335715
+- Final transformation loss: 0.000133
+- Final total loss: 0.335715

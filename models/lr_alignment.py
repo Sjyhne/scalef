@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import torch
 import torch.nn.functional as F
 
-from models.s2_psf_forward import get_s2_psf_forward
+from models.s2_psf_forward import S2_RGB_BAND_ORDER, get_s2_psf_forward
 
 
 def default_lr_align_args() -> SimpleNamespace:
@@ -54,7 +54,7 @@ def align_prediction_hwc_to_target(
             f"lr_alignment [s2_psf]: expected 3 RGB channels, got C={c}.",
         )
 
-    band_order = ("B02", "B03", "B04")
+    band_order = S2_RGB_BAND_ORDER
     mod = get_s2_psf_forward(
         scale_factor=df,
         sigma_m_by_band={

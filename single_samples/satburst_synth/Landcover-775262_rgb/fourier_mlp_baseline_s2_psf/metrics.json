@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-775262_rgb",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id Landcover-775262_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 27.214170455932617,
+    "bilinear": 27.960044860839844,
+    "improvement": -0.7458744049072266
+  },
+  "ssim": {
+    "model": 0.7799599170684814,
+    "bilinear": 0.5773771405220032,
+    "improvement": 0.20258277654647827
+  },
+  "lpips": {
+    "model": 0.25172966718673706,
+    "bilinear": 0.4979979693889618,
+    "improvement": 0.24626830220222473
+  },
+  "training": {
+    "final_test_loss": 0.0020373163279145956,
+    "final_test_psnr": 26.90941572189331,
+    "final_recon_loss": 0.0175572969019413,
+    "final_trans_loss": 0.016057532229655003,
+    "final_total_loss": 0.0175572969019413,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.499329566955566,
+    "time_per_iteration_seconds": 0.004749664783477783,
+    "evaluation_time_seconds": 3.209557056427002,
+    "total_runtime_seconds": 12.708888053894043
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

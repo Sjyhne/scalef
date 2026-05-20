@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "UNHCR-YEMs035290_rgb",
+  "run_name": "hashgrid_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id UNHCR-YEMs035290_rgb --input_projection hashgrid --hash_n_levels 16 --hash_n_features_per_level 2 --hash_log2_hashmap_size 21 --hash_base_resolution 0 --hash_max_resolution 0 --hash_encoding_dtype fp32 --hash_encoding_preset smoothstep_grid --hash_grid_type Hash --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name hashgrid_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "hashgrid_tcnn",
+  "hash_base_resolution": 16,
+  "hash_max_resolution": 64,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 24.985849380493164,
+    "bilinear": 26.805137634277344,
+    "improvement": -1.8192882537841797
+  },
+  "ssim": {
+    "model": 0.7384429574012756,
+    "bilinear": 0.6593056321144104,
+    "improvement": 0.07913732528686523
+  },
+  "lpips": {
+    "model": 0.33140313625335693,
+    "bilinear": 0.4100230634212494,
+    "improvement": 0.07861992716789246
+  },
+  "training": {
+    "final_test_loss": 0.0034475126303732395,
+    "final_test_psnr": 24.62494134902954,
+    "final_recon_loss": 0.004308389034122229,
+    "final_trans_loss": 0.015041089488801009,
+    "final_total_loss": 0.004308389034122229,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.709415674209595,
+    "time_per_iteration_seconds": 0.004854707837104798,
+    "evaluation_time_seconds": 3.216632127761841,
+    "total_runtime_seconds": 12.92604947090149
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

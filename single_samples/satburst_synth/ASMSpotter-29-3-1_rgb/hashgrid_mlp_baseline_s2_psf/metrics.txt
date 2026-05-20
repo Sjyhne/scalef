@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: ASMSpotter-29-3-1_rgb
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 30.68 dB
+    - Bilinear Interpolation: 30.44 dB
+    - PSNR Improvement: 0.25 dB
+
+    SSIM Results:
+    - Model Output: 0.8704
+    - Bilinear Interpolation: 0.8345
+    - SSIM Improvement: 0.0358
+
+    LPIPS Results:
+    - Model Output: 0.2792
+    - Bilinear Interpolation: 0.3530
+    - LPIPS Improvement: 0.0739
+
+    Training Results:
+    - Final Test Loss: 0.000855
+    - Final Test PSNR: 30.68 dB
+    - Final Reconstruction Loss: 0.002013
+    - Final Transformation Loss: 0.015065
+    - Final Total Loss: 0.002013
+
+    Timing:
+    - Training time: 10.09 s (0.17 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0050 s
+    - Final evaluation time: 3.38 s
+    - Total runtime: 13.46 s (0.22 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 29.82 - 31.46 dB
+- Reconstruction loss range: 0.001817 - 0.020171
+- Transformation loss range: 0.014495 - 0.019154
+- Total loss range: 0.001817 - 0.020171
+- Final PSNR: 30.68 dB
+- Final reconstruction loss: 0.002013
+- Final transformation loss: 0.015065
+- Final total loss: 0.002013

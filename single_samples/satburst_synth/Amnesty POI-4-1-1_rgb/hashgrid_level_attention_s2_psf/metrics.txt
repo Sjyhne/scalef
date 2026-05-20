@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: Amnesty POI-4-1-1_rgb
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 29.02 dB
+    - Bilinear Interpolation: 30.38 dB
+    - PSNR Improvement: -1.36 dB
+
+    SSIM Results:
+    - Model Output: 0.8058
+    - Bilinear Interpolation: 0.7896
+    - SSIM Improvement: 0.0163
+
+    LPIPS Results:
+    - Model Output: 0.2942
+    - Bilinear Interpolation: 0.3921
+    - LPIPS Improvement: 0.0979
+
+    Training Results:
+    - Final Test Loss: 0.001265
+    - Final Test PSNR: 28.98 dB
+    - Final Reconstruction Loss: 0.006640
+    - Final Transformation Loss: 0.010149
+    - Final Total Loss: 0.006640
+
+    Timing:
+    - Training time: 15.77 s (0.26 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0079 s
+    - Final evaluation time: 3.55 s
+    - Total runtime: 19.32 s (0.32 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 28.98 - 30.26 dB
+- Reconstruction loss range: 0.006388 - 0.110419
+- Transformation loss range: 0.001781 - 0.012103
+- Total loss range: 0.006388 - 0.110419
+- Final PSNR: 28.98 dB
+- Final reconstruction loss: 0.006640
+- Final transformation loss: 0.010149
+- Final total loss: 0.006640

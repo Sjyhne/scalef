@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: ASMSpotter-29-3-1_rgb
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 29.53 dB
+    - Bilinear Interpolation: 30.44 dB
+    - PSNR Improvement: -0.90 dB
+
+    SSIM Results:
+    - Model Output: 0.8480
+    - Bilinear Interpolation: 0.8345
+    - SSIM Improvement: 0.0134
+
+    LPIPS Results:
+    - Model Output: 0.3209
+    - Bilinear Interpolation: 0.3530
+    - LPIPS Improvement: 0.0321
+
+    Training Results:
+    - Final Test Loss: 0.001118
+    - Final Test PSNR: 29.52 dB
+    - Final Reconstruction Loss: 0.003075
+    - Final Transformation Loss: 0.015064
+    - Final Total Loss: 0.003075
+
+    Timing:
+    - Training time: 15.32 s (0.26 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0077 s
+    - Final evaluation time: 3.42 s
+    - Total runtime: 18.74 s (0.31 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 29.08 - 30.58 dB
+- Reconstruction loss range: 0.002655 - 0.031945
+- Transformation loss range: 0.014493 - 0.019150
+- Total loss range: 0.002655 - 0.031945
+- Final PSNR: 29.52 dB
+- Final reconstruction loss: 0.003075
+- Final transformation loss: 0.015064
+- Final total loss: 0.003075

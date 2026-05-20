@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: Amnesty POI-9-3-2
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 20.25 dB
+    - Bilinear Interpolation: 20.73 dB
+    - PSNR Improvement: -0.48 dB
+
+    SSIM Results:
+    - Model Output: 0.2313
+    - Bilinear Interpolation: 0.2768
+    - SSIM Improvement: -0.0455
+
+    LPIPS Results:
+    - Model Output: 0.6536
+    - Bilinear Interpolation: 0.6962
+    - LPIPS Improvement: 0.0426
+
+    Training Results:
+    - Final Test Loss: 0.009447
+    - Final Test PSNR: 20.25 dB
+    - Final Reconstruction Loss: 0.216135
+    - Final Transformation Loss: 0.000142
+    - Final Total Loss: 0.216135
+
+    Timing:
+    - Training time: 13.84 s (0.23 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0069 s
+    - Final evaluation time: 3.18 s
+    - Total runtime: 17.02 s (0.28 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 20.25 - 20.44 dB
+- Reconstruction loss range: 0.172803 - 0.701703
+- Transformation loss range: 0.000018 - 0.000142
+- Total loss range: 0.172803 - 0.701703
+- Final PSNR: 20.25 dB
+- Final reconstruction loss: 0.216135
+- Final transformation loss: 0.000142
+- Final total loss: 0.216135

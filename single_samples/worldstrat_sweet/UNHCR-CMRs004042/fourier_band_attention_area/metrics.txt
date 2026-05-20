@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: UNHCR-CMRs004042
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 30.44 dB
+    - Bilinear Interpolation: 30.96 dB
+    - PSNR Improvement: -0.52 dB
+
+    SSIM Results:
+    - Model Output: 0.7039
+    - Bilinear Interpolation: 0.7311
+    - SSIM Improvement: -0.0272
+
+    LPIPS Results:
+    - Model Output: 0.5286
+    - Bilinear Interpolation: 0.5844
+    - LPIPS Improvement: 0.0557
+
+    Training Results:
+    - Final Test Loss: 0.000904
+    - Final Test PSNR: 30.44 dB
+    - Final Reconstruction Loss: 0.245834
+    - Final Transformation Loss: 0.000188
+    - Final Total Loss: 0.245834
+
+    Timing:
+    - Training time: 11.66 s (0.19 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0058 s
+    - Final evaluation time: 3.22 s
+    - Total runtime: 14.88 s (0.25 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 29.96 - 30.44 dB
+- Reconstruction loss range: 0.245834 - 1.704175
+- Transformation loss range: 0.000060 - 0.000209
+- Total loss range: 0.245834 - 1.704175
+- Final PSNR: 30.44 dB
+- Final reconstruction loss: 0.245834
+- Final transformation loss: 0.000188
+- Final total loss: 0.245834

@@ -1,0 +1,53 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "UNHCR-MMRs035165",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id UNHCR-MMRs035165 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 30.614286422729492,
+    "bilinear": 30.732336044311523,
+    "improvement": -0.11804962158203125
+  },
+  "ssim": {
+    "model": 0.7388882637023926,
+    "bilinear": 0.7442410588264465,
+    "improvement": -0.005352795124053955
+  },
+  "lpips": {
+    "model": 0.5175098180770874,
+    "bilinear": 0.5671819448471069,
+    "improvement": 0.04967212677001953
+  },
+  "training": {
+    "final_test_loss": 0.0008681031176820397,
+    "final_test_psnr": 30.614287853240967,
+    "final_recon_loss": 0.1971406191587448,
+    "final_trans_loss": 0.00012380083714353323,
+    "final_total_loss": 0.1971406191587448,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.8117053508758545,
+    "time_per_iteration_seconds": 0.0039058526754379274,
+    "evaluation_time_seconds": 3.243309497833252,
+    "total_runtime_seconds": 11.055017709732056
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

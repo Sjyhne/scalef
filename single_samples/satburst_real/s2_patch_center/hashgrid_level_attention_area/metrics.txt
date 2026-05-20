@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_real
+    Sample ID: s2_patch_center
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 28.91 dB
+    - Bilinear Interpolation: 45.04 dB
+    - PSNR Improvement: -16.12 dB
+
+    SSIM Results:
+    - Model Output: 0.9127
+    - Bilinear Interpolation: 0.9898
+    - SSIM Improvement: -0.0772
+
+    LPIPS Results:
+    - Model Output: 0.2402
+    - Bilinear Interpolation: 0.0460
+    - LPIPS Improvement: -0.1942
+
+    Training Results:
+    - Final Test Loss: 0.001285
+    - Final Test PSNR: 28.91 dB
+    - Final Reconstruction Loss: 0.169344
+    - Final Transformation Loss: 0.000079
+    - Final Total Loss: 0.169344
+
+    Timing:
+    - Training time: 13.89 s (0.23 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0069 s
+    - Final evaluation time: 3.36 s
+    - Total runtime: 17.26 s (0.29 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 28.65 - 29.12 dB
+- Reconstruction loss range: 0.050354 - 0.195119
+- Transformation loss range: 0.000012 - 0.000189
+- Total loss range: 0.050354 - 0.195119
+- Final PSNR: 28.91 dB
+- Final reconstruction loss: 0.169344
+- Final transformation loss: 0.000079
+- Final total loss: 0.169344

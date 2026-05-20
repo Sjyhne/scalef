@@ -1,0 +1,61 @@
+{
+  "dataset": "satburst_real",
+  "sample_id": "s2_scene_center_v2_128",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_real --satburst_data_root data_real --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --sample_id s2_scene_center_v2_128 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 32.619598388671875,
+    "bilinear": 48.435508728027344,
+    "improvement": -15.815910339355469
+  },
+  "ssim": {
+    "model": 0.9301082491874695,
+    "bilinear": 0.9937582015991211,
+    "improvement": -0.06364995241165161
+  },
+  "lpips": {
+    "model": 0.22483757138252258,
+    "bilinear": 0.033201247453689575,
+    "improvement": -0.191636323928833
+  },
+  "training": {
+    "final_test_loss": 0.000547066330909729,
+    "final_test_psnr": 32.61960029602051,
+    "final_recon_loss": 0.24096135795116425,
+    "final_trans_loss": 3.105089161039086e-05,
+    "final_total_loss": 0.24096135795116425,
+    "completed_iterations": 2000,
+    "training_time_seconds": 15.138283252716064,
+    "time_per_iteration_seconds": 0.007569141626358032,
+    "evaluation_time_seconds": 5.503495693206787,
+    "total_runtime_seconds": 20.641780853271484
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": true,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": {
+      "y0": 1024,
+      "x0": 1472,
+      "h_min": 2137,
+      "w_min": 2945,
+      "patch_size": 128,
+      "reference_patch_size": 128,
+      "shared_eval_crop_lr_size": 128
+    }
+  }
+}

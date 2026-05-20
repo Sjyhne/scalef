@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "ASMSpotter-29-3-1_rgb",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id ASMSpotter-29-3-1_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 31.90950584411621,
+    "bilinear": 30.43590545654297,
+    "improvement": 1.4736003875732422
+  },
+  "ssim": {
+    "model": 0.8802865147590637,
+    "bilinear": 0.8345487713813782,
+    "improvement": 0.04573774337768555
+  },
+  "lpips": {
+    "model": 0.2652817964553833,
+    "bilinear": 0.35301631689071655,
+    "improvement": 0.08773452043533325
+  },
+  "training": {
+    "final_test_loss": 0.0006444412283599377,
+    "final_test_psnr": 31.90816640853882,
+    "final_recon_loss": 0.002705677878111601,
+    "final_trans_loss": 0.015065838033800108,
+    "final_total_loss": 0.002705677878111601,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.466146469116211,
+    "time_per_iteration_seconds": 0.0047330732345581055,
+    "evaluation_time_seconds": 3.4024343490600586,
+    "total_runtime_seconds": 12.868582248687744
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

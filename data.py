@@ -74,10 +74,22 @@ def get_dataset(args, name='satburst', keep_in_memory=True):
     elif name == 'worldstrat':
         return WorldStratDatasetFrame(data_dir=args.root_worldstrat, 
                                       area_name=args.area_name, hr_size=args.worldstrat_hr_size)
-    elif name == 'worldstrat_test':
-        args.root_worldstrat_test = "worldstrat_test_data"
-        return WorldStratTestDataset(data_dir=args.root_worldstrat_test, 
-                                     sample_id=args.sample_id, keep_in_memory=keep_in_memory, scale_factor=scale_factor)
+    elif name in ("worldstrat_test", "worldstrat_sweet", "worldstrat_bitter"):
+        root = getattr(args, "root_worldstrat_test", None)
+        if not root or not str(root).strip():
+            if name == "worldstrat_sweet":
+                root = "worldstrat_datasets/worldstrat_sweet"
+            elif name == "worldstrat_bitter":
+                root = "worldstrat_datasets/worldstrat_bitter"
+            else:
+                root = "worldstrat_test_data"
+        return WorldStratTestDataset(
+            data_dir=str(root),
+            sample_id=args.sample_id,
+            keep_in_memory=keep_in_memory,
+            scale_factor=scale_factor,
+            num_samples=int(getattr(args, "num_samples", 0) or 0),
+        )
     else:
         raise ValueError(f"Invalid dataset name: {name}")
 
@@ -677,7 +689,7 @@ class WorldStratDatasetFrame(torch.utils.data.Dataset):
 class WorldStratTestDataset(torch.utils.data.Dataset):
     """Dataset for WorldStrat test data with hr/lr folder structure."""
     
-    def __init__(self, data_dir, sample_id, keep_in_memory=True, scale_factor=4):
+    def __init__(self, data_dir, sample_id, keep_in_memory=True, scale_factor=4, num_samples=0):
         """
         Initialize WorldStrat test dataset following SRData template.
         
@@ -714,7 +726,9 @@ class WorldStratTestDataset(torch.utils.data.Dataset):
         self.lr_paths = sorted(list(self.lr_dir.glob("*.png")))
         if not self.lr_paths:
             raise ValueError(f"No LR images found in {self.lr_dir}")
-        
+        if int(num_samples or 0) > 0:
+            self.lr_paths = self.lr_paths[: int(num_samples)]
+
         print(f"Found {len(self.lr_paths)} LR images for sample {sample_id}")
         
         # Load HR image (following SRData pattern)

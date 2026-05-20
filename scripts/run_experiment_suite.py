@@ -60,6 +60,60 @@ def _min_lr_side_from_scene(scene_dir: Path, scale_leaf: str) -> int | None:
     return min(sides) if sides else None
 
 
+WORLDSTRAT_DATASETS = ("worldstrat_test", "worldstrat_sweet", "worldstrat_bitter")
+
+
+def _default_worldstrat_data_root(dataset: str) -> str:
+    if dataset == "worldstrat_sweet":
+        return "worldstrat_datasets/worldstrat_sweet"
+    if dataset == "worldstrat_bitter":
+        return "worldstrat_datasets/worldstrat_bitter"
+    return "worldstrat_test_data"
+
+
+def _worldstrat_data_missing_message(repo_root: Path, data_root: str) -> str:
+    data_path = repo_root / data_root
+    lines = [
+        f"WorldStrat data directory not found: {data_path}",
+        "",
+        "Expected layout (see docs/WORLDSTRAT_EXPERIMENTS.md):",
+        f"  {data_root}/<area_name>/hr/*.png",
+        f"  {data_root}/<area_name>/lr/*.png",
+        "",
+        "Fix options:",
+        f"  1. Download or copy areas into {data_path}",
+        f"  2. Point to an existing tree: WORLDSTRAT_DATA_ROOT=/path/to/parent ./scripts/run_attention_experiment_suite.sh",
+        "     or: python scripts/run_experiment_suite.py --dataset worldstrat_sweet --worldstrat_data_root /path/to/parent ...",
+    ]
+    if data_path.is_symlink():
+        try:
+            target = data_path.readlink()
+        except OSError:
+            target = "?"
+        resolved = data_path.resolve(strict=False)
+        lines.append(f"  Note: {data_path} is a symlink -> {target} (resolved: {resolved})")
+    elif not data_path.exists() and (repo_root / "worldstrat_datasets").is_symlink():
+        ws = repo_root / "worldstrat_datasets"
+        lines.append(
+            f"  Note: {ws} symlink may be broken (target {ws.readlink()}). "
+            "Recreate it to your data checkout."
+        )
+    return "\n".join(lines)
+
+
+def _discover_worldstrat_samples(repo_root: Path, data_root: str) -> list[str]:
+    data_dir = repo_root / data_root
+    if not data_dir.is_dir():
+        raise FileNotFoundError(_worldstrat_data_missing_message(repo_root, data_root))
+    sample_ids: list[str] = []
+    for p in sorted(data_dir.iterdir(), key=lambda x: x.name):
+        if not p.is_dir() or p.name.startswith("."):
+            continue
+        if (p / "hr").is_dir() and (p / "lr").is_dir():
+            sample_ids.append(p.name)
+    return sample_ids
+
+
 def _discover_satburst_samples(
     repo_root: Path, data_root: str, df: int, lr_shift: float, aug: str, *, max_lr_side: int = 0
 ) -> list[str]:
@@ -112,6 +166,16 @@ def _write_rows_json(path: Path, rows: list[dict]) -> None:
         json.dump(rows, f, indent=2)
 
 
+def _adaptive_hash_resolution_args() -> list[str]:
+    """Per-scene coarsest/finest grid from LR size (see ``optimize.resolve_hash_grid_resolutions``)."""
+    return [
+        "--hash_base_resolution",
+        "0",
+        "--hash_max_resolution",
+        "0",
+    ]
+
+
 def _plan_hashgrid_args() -> list[str]:
     """HashGrid hyperparameters for the suite (decoder input = n_levels * n_features)."""
     return [
@@ -129,6 +193,7 @@ def _plan_hashgrid_args() -> list[str]:
         "21",
         "--hash_encoding_dtype",
         "fp32",
+        *_adaptive_hash_resolution_args(),
     ]
 
 
@@ -151,7 +216,7 @@ def _fourier_baseline_mlp_tcnn() -> list[str]:
 
 
 def build_experiment_suite() -> list[Experiment]:
-    """SuperF Fourier features vs SuperF HashGrid (same MLP decoder)."""
+    """SuperF Fourier features vs SuperF HashGrid (both use decoder 4×256)."""
     hg = _plan_hashgrid_args()
     hm = _suite_mlp_tcnn_args()
     fb = _fourier_baseline_mlp_tcnn()
@@ -184,10 +249,11 @@ def _hash_attn_exam_hashgrid_args() -> list[str]:
         "smoothstep_grid",
         "--hash_grid_type",
         "Hash",
+        *_adaptive_hash_resolution_args(),
         "--network_depth",
-        "3",
+        "4",
         "--network_hidden_dim",
-        "64",
+        "256",
     ]
 
 
@@ -219,45 +285,42 @@ def build_all_experiment_suite() -> list[Experiment]:
     return [*build_experiment_suite(), *build_hash_attn_experiment_suite()]
 
 
-def _attention_exam_shared_decoder_args() -> list[str]:
-    """Matched decoder + regularization for updated_attention_experiment_agent_brief.md."""
+def _attention_exam_decoder_args() -> list[str]:
+    """Matched MLP decoder for all attention-suite methods (A–D)."""
     return [
         "--network_depth",
-        "3",
+        "4",
         "--network_hidden_dim",
-        "64",
+        "256",
         "--weight_decay",
         "0",
     ]
 
 
 def _attention_exam_hashgrid_args() -> list[str]:
-    """HashGrid encoding knobs shared by methods B and C in the exam ablation."""
+    """HashGrid encoding for methods B and C (decoder 4×256)."""
     return [
         "--input_projection",
         "hashgrid",
         "--hash_n_levels",
-        "12",
+        "16",
         "--hash_n_features_per_level",
         "2",
         "--hash_log2_hashmap_size",
-        "16",
-        "--hash_base_resolution",
-        "8",
-        "--hash_max_resolution",
-        "256",
+        "21",
+        *_adaptive_hash_resolution_args(),
         "--hash_encoding_dtype",
         "fp32",
         "--hash_encoding_preset",
         "smoothstep_grid",
         "--hash_grid_type",
         "Hash",
-        *_attention_exam_shared_decoder_args(),
+        *_attention_exam_decoder_args(),
     ]
 
 
 def _attention_exam_fourier_args() -> list[str]:
-    """Fourier encoding knobs shared by methods A and D."""
+    """Fourier encoding for methods A and D (decoder 4×256)."""
     return [
         "--input_projection",
         "fourier",
@@ -265,66 +328,61 @@ def _attention_exam_fourier_args() -> list[str]:
         "256",
         "--fourier_scale",
         "10",
-        *_attention_exam_shared_decoder_args(),
+        *_attention_exam_decoder_args(),
     ]
 
 
-def build_attention_experiment_suite(*, include_fourier_band_attn: bool = False) -> list[Experiment]:
-    """Fair exam ablation: Fourier vs HashGrid baselines vs attention decoders.
+def _attention_run_name(base: str, lr_degradation: str, lr_degradations: tuple[str, ...]) -> str:
+    """Legacy unsuffixed names when only ``area``; suffix ``_<mode>`` when multiple degradations."""
+    if len(lr_degradations) == 1 and lr_degradations[0] == "area":
+        return base
+    return f"{base}_{lr_degradation}"
 
-    Hyperparameters follow ``updated_attention_experiment_agent_brief.md`` (depth 3,
-    hidden 64, weight_decay 0, HashGrid smoothstep_grid with 12 levels, etc.).
-    Attention runs enable ``--log_attention`` for ``attention_log.json``.
 
-    Args:
-        include_fourier_band_attn: If True, add method D (``fourier_band_attention``).
-    """
+def _attention_experiment_definitions(
+    *, include_fourier_band_attn: bool
+) -> list[tuple[str, list[str]]]:
+    """(base run name, method-specific CLI args without ``--run_name`` / ``--lr_degradation``)."""
     hg = _attention_exam_hashgrid_args()
     fo = _attention_exam_fourier_args()
-    exps: list[Experiment] = [
-        Experiment(
-            name="fourier_mlp_baseline",
-            args=[
+    defs: list[tuple[str, list[str]]] = [
+        (
+            "fourier_mlp_baseline",
+            [
                 *fo,
                 "--model",
                 "mlp_tcnn",
                 "--tcnn_mlp_dtype",
                 "fp16",
-                "--run_name",
-                "fourier_mlp_baseline",
             ],
         ),
-        Experiment(
-            name="hashgrid_mlp_baseline",
-            args=[
+        (
+            "hashgrid_mlp_baseline",
+            [
                 *hg,
                 "--model",
                 "mlp_tcnn",
                 "--tcnn_mlp_dtype",
                 "fp16",
-                "--run_name",
-                "hashgrid_mlp_baseline",
             ],
         ),
-        Experiment(
-            name="hashgrid_level_attention",
-            args=[
+        (
+            "hashgrid_level_attention",
+            [
                 *hg,
                 "--model",
                 "hash_attn",
                 "--hash_attn_token_dim",
                 "32",
                 "--log_attention",
-                "--run_name",
-                "hashgrid_level_attention",
             ],
         ),
     ]
     if include_fourier_band_attn:
-        exps.append(
-            Experiment(
-                name="fourier_band_attention",
-                args=[
+        defs.append(
+            (
+                "fourier_band_attention",
+                [
                     *fo,
                     "--model",
                     "fourier_band_attn",
@@ -333,17 +391,54 @@ def build_attention_experiment_suite(*, include_fourier_band_attn: bool = False)
                     "--fourier_num_bands",
                     "8",
                     "--log_attention",
-                    "--run_name",
-                    "fourier_band_attention",
                 ],
             )
         )
+    return defs
+
+
+def build_attention_experiment_suite(
+    *,
+    include_fourier_band_attn: bool = False,
+    lr_degradations: tuple[str, ...] = ("area",),
+) -> list[Experiment]:
+    """Fair exam ablation: Fourier vs HashGrid baselines vs attention decoders.
+
+    All methods use decoder 4×256 (weight_decay 0). HashGrid uses 16 levels / log2
+    hashmap 21 with per-scene base/max from LR size, etc.
+    Attention runs enable ``--log_attention`` for ``attention_log.json``.
+
+    Args:
+        include_fourier_band_attn: If True, add method D (``fourier_band_attention``).
+        lr_degradations: HR→LR operators passed as ``--lr_degradation`` (e.g. ``area``, ``s2_psf``).
+    """
+    exps: list[Experiment] = []
+    for base_name, method_args in _attention_experiment_definitions(
+        include_fourier_band_attn=include_fourier_band_attn
+    ):
+        for deg in lr_degradations:
+            run_name = _attention_run_name(base_name, deg, lr_degradations)
+            exps.append(
+                Experiment(
+                    name=run_name,
+                    args=[
+                        *method_args,
+                        "--lr_degradation",
+                        deg,
+                        "--run_name",
+                        run_name,
+                    ],
+                )
+            )
     return exps
 
 
 def build_attention_full_experiment_suite() -> list[Experiment]:
-    """Methods A–D from the updated attention brief (includes optional Fourier-band attn)."""
-    return build_attention_experiment_suite(include_fourier_band_attn=True)
+    """Methods A–D with both ``area`` and ``s2_psf`` HR→LR degradation."""
+    return build_attention_experiment_suite(
+        include_fourier_band_attn=True,
+        lr_degradations=("area", "s2_psf"),
+    )
 
 
 def _suite_builders() -> dict[str, Callable[[], list[Experiment]]]:
@@ -365,6 +460,7 @@ def _metrics_row(m: dict, *, experiment: str, seed: int, metrics_path: Path) -> 
         "dataset": m.get("dataset"),
         "sample_id": m.get("sample_id"),
         "df": m.get("downsampling_factor"),
+        "lr_degradation": m.get("lr_degradation"),
         "model": m.get("model"),
         "input_projection": m.get("input_projection"),
         "hash_base_resolution": m.get("hash_base_resolution"),
@@ -403,8 +499,17 @@ def main() -> int:
     parser.add_argument(
         "--dataset",
         default="satburst_synth",
-        choices=["satburst_synth", "satburst_real"],
-        help="satburst_synth: scenes under data/. satburst_real: scenes under data_real/ (default root).",
+        choices=[
+            "satburst_synth",
+            "satburst_real",
+            "worldstrat_test",
+            "worldstrat_sweet",
+            "worldstrat_bitter",
+        ],
+        help=(
+            "satburst_*: scenes under data/ or data_real/. "
+            "worldstrat_*: areas under worldstrat_datasets/ or worldstrat_test_data/ (hr/ + lr/)."
+        ),
     )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--df", type=int, default=4)
@@ -430,6 +535,15 @@ def main() -> int:
             "Override scene parent folder. Default: ``data`` for satburst_synth, ``data_real`` for "
             "satburst_real. Scenes without a matching ``scale_<df>_shift_<lr_shift>px_aug_<aug>/`` "
             "subfolder are skipped."
+        ),
+    )
+    parser.add_argument(
+        "--worldstrat_data_root",
+        type=str,
+        default=None,
+        help=(
+            "Override WorldStrat area parent folder. Default: ``worldstrat_datasets/worldstrat_sweet`` "
+            "or ``worldstrat_bitter``, or ``worldstrat_test_data`` for worldstrat_test."
         ),
     )
     parser.add_argument(
@@ -492,8 +606,8 @@ def main() -> int:
             "Experiment set per scene: ``superf`` = Fourier + HashGrid MLP; "
             "``hash_attn`` = HashGrid MLP vs level-attention; "
             "``all`` = superf + hash_attn (legacy 4-run mix); "
-            "``attention`` = exam ablation A/B/C (Fourier MLP, HashGrid MLP, HashGrid level-attn); "
-            "``attention_full`` = A/B/C/D (+ Fourier-band attention)."
+            "``attention`` = exam ablation A/B/C (area HR→LR only); "
+            "``attention_full`` = A/B/C/D with both ``area`` and ``s2_psf`` HR→LR (8 runs/scene)."
         ),
     )
     args = parser.parse_args()
@@ -501,7 +615,13 @@ def main() -> int:
     dataset = str(args.dataset)
     device = str(args.device)
 
-    if args.satburst_data_root:
+    is_worldstrat = dataset in WORLDSTRAT_DATASETS
+    if is_worldstrat:
+        if args.worldstrat_data_root:
+            data_root = str(args.worldstrat_data_root).strip().rstrip("/")
+        else:
+            data_root = _default_worldstrat_data_root(dataset)
+    elif args.satburst_data_root:
         data_root = str(args.satburst_data_root).strip().rstrip("/")
     elif dataset == "satburst_real":
         data_root = "data_real"
@@ -511,14 +631,6 @@ def main() -> int:
     common = [
         "--dataset",
         dataset,
-        "--satburst_data_root",
-        data_root,
-        "--df",
-        str(args.df),
-        "--lr_shift",
-        str(args.lr_shift),
-        "--aug",
-        str(args.aug),
         "--num_samples",
         str(args.num_samples),
         "--iters",
@@ -536,30 +648,59 @@ def main() -> int:
         "--device",
         device,
     ]
+    if is_worldstrat:
+        common.extend(["--worldstrat_data_root", data_root, "--df", str(args.df)])
+    else:
+        common.extend(
+            [
+                "--satburst_data_root",
+                data_root,
+                "--df",
+                str(args.df),
+                "--lr_shift",
+                str(args.lr_shift),
+                "--aug",
+                str(args.aug),
+            ]
+        )
 
     suite_name = str(args.suite)
     suite = _suite_builders()[suite_name]()
     repo_root = Path(__file__).resolve().parents[1]
-    sample_ids = _discover_satburst_samples(
-        repo_root,
-        data_root,
-        int(args.df),
-        float(args.lr_shift),
-        str(args.aug),
-        max_lr_side=int(args.max_lr_side),
-    )
+    if is_worldstrat:
+        sample_ids = _discover_worldstrat_samples(repo_root, data_root)
+        if not sample_ids:
+            raise RuntimeError(
+                f"No WorldStrat areas found under {repo_root / data_root} "
+                "(expected <area>/hr/ and <area>/lr/)."
+            )
+    else:
+        sample_ids = _discover_satburst_samples(
+            repo_root,
+            data_root,
+            int(args.df),
+            float(args.lr_shift),
+            str(args.aug),
+            max_lr_side=int(args.max_lr_side),
+        )
+        if not sample_ids:
+            raise RuntimeError(
+                f"No samples found under {repo_root / data_root} with scale folder "
+                f"scale_{args.df}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
+            )
     if args.limit_samples and args.limit_samples > 0:
         sample_ids = sample_ids[: int(args.limit_samples)]
-    if not sample_ids:
-        raise RuntimeError(
-            f"No samples found under {repo_root / data_root} with scale folder "
-            f"scale_{args.df}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
-        )
 
     if dataset == "satburst_real":
         print(
             "Note (data_real): scenes can use different LR/HR sizes; metrics are per-scene. "
             "See data_real/README.txt.",
+            flush=True,
+        )
+    elif is_worldstrat:
+        print(
+            f"WorldStrat: {len(sample_ids)} area(s) under {repo_root / data_root} "
+            f"(hr/ + lr/ per area). See docs/WORLDSTRAT_EXPERIMENTS.md.",
             flush=True,
         )
 
@@ -570,23 +711,30 @@ def main() -> int:
     if eval_crop_raw in {"0", "off", "none", "no", "false", ""}:
         eval_crop_lr_size = 0
     elif eval_crop_raw == "auto":
-        sides: list[int] = []
-        for sid in sample_ids:
-            s = _min_lr_side_from_scene(repo_root / data_root / sid, scale_leaf)
-            if s is not None and s > 0:
-                sides.append(int(s))
-        eval_crop_lr_size = min(sides) if sides else 0
-        if eval_crop_lr_size > 0:
+        if is_worldstrat:
+            eval_crop_lr_size = 64
             print(
-                f"Auto-detected --eval_crop_lr_size={eval_crop_lr_size} (smallest LR side across "
-                f"{len(sample_ids)} scene(s)).",
+                "WorldStrat: using --eval_crop_lr_size=64 (center-cropped LR patches).",
                 flush=True,
             )
         else:
-            print(
-                "Auto-detect for --eval_crop_lr_size found no usable LR sides; cropping disabled.",
-                flush=True,
-            )
+            sides: list[int] = []
+            for sid in sample_ids:
+                s = _min_lr_side_from_scene(repo_root / data_root / sid, scale_leaf)
+                if s is not None and s > 0:
+                    sides.append(int(s))
+            eval_crop_lr_size = min(sides) if sides else 0
+            if eval_crop_lr_size > 0:
+                print(
+                    f"Auto-detected --eval_crop_lr_size={eval_crop_lr_size} (smallest LR side across "
+                    f"{len(sample_ids)} scene(s)).",
+                    flush=True,
+                )
+            else:
+                print(
+                    "Auto-detect for --eval_crop_lr_size found no usable LR sides; cropping disabled.",
+                    flush=True,
+                )
     else:
         try:
             eval_crop_lr_size = max(0, int(eval_crop_raw))
@@ -611,8 +759,8 @@ def main() -> int:
         "superf": "Fourier + HashGrid MLP",
         "hash_attn": "HashGrid MLP vs level-attention",
         "all": "superf + hash_attn (legacy full comparison)",
-        "attention": "exam ablation A/B/C (matched hyperparameters)",
-        "attention_full": "exam ablation A/B/C/D (+ Fourier-band attention)",
+        "attention": "exam ablation A/B/C (area HR→LR)",
+        "attention_full": "exam ablation A/B/C/D (area + s2_psf HR→LR)",
     }
     print(
         f"Suite {suite_name!r} ({suite_labels.get(suite_name, suite_name)}): "

@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-1339590_rgb",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id Landcover-1339590_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 32.99502182006836,
+    "bilinear": 25.981605529785156,
+    "improvement": 7.013416290283203
+  },
+  "ssim": {
+    "model": 0.9019834995269775,
+    "bilinear": 0.5296207070350647,
+    "improvement": 0.37236279249191284
+  },
+  "lpips": {
+    "model": 0.12600062787532806,
+    "bilinear": 0.4121874272823334,
+    "improvement": 0.2861867994070053
+  },
+  "training": {
+    "final_test_loss": 0.000501762144267559,
+    "final_test_psnr": 32.9950213432312,
+    "final_recon_loss": 0.0021465374156832695,
+    "final_trans_loss": 0.009547689546497526,
+    "final_total_loss": 0.0021465374156832695,
+    "completed_iterations": 2000,
+    "training_time_seconds": 8.138608694076538,
+    "time_per_iteration_seconds": 0.004069304347038269,
+    "evaluation_time_seconds": 3.3162686824798584,
+    "total_runtime_seconds": 11.45487928390503
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

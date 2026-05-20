@@ -1,0 +1,75 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Amnesty POI-17-3-1_rgb",
+  "run_name": "hashgrid_level_attention_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id 'Amnesty POI-17-3-1_rgb' --input_projection hashgrid --hash_n_levels 16 --hash_n_features_per_level 2 --hash_log2_hashmap_size 21 --hash_base_resolution 0 --hash_max_resolution 0 --hash_encoding_dtype fp32 --hash_encoding_preset smoothstep_grid --hash_grid_type Hash --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model hash_attn --hash_attn_token_dim 32 --log_attention --lr_degradation s2_psf --run_name hashgrid_level_attention_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "hash_attn",
+  "input_projection": "hashgrid_tcnn",
+  "hash_base_resolution": 16,
+  "hash_max_resolution": 64,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 30.286144256591797,
+    "bilinear": 30.604480743408203,
+    "improvement": -0.31833648681640625
+  },
+  "ssim": {
+    "model": 0.8779251575469971,
+    "bilinear": 0.8783602714538574,
+    "improvement": -0.00043511390686035156
+  },
+  "lpips": {
+    "model": 0.2486114650964737,
+    "bilinear": 0.319144070148468,
+    "improvement": 0.07053260505199432
+  },
+  "training": {
+    "final_test_loss": 0.0009431005455553532,
+    "final_test_psnr": 30.25441884994507,
+    "final_recon_loss": 0.002676092553883791,
+    "final_trans_loss": 0.012380594505513669,
+    "final_total_loss": 0.002676092553883791,
+    "completed_iterations": 2000,
+    "training_time_seconds": 16.526938438415527,
+    "time_per_iteration_seconds": 0.008263469219207764,
+    "evaluation_time_seconds": 3.197861671447754,
+    "total_runtime_seconds": 19.724802017211914
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  },
+  "attention": {
+    "mean_by_level": [
+      0.019603218883275986,
+      0.019814280793070793,
+      0.020785480737686157,
+      0.02049787901341915,
+      0.02276908978819847,
+      0.022354232147336006,
+      0.023891808465123177,
+      0.028205957263708115,
+      0.028277210891246796,
+      0.03314114362001419,
+      0.038756415247917175,
+      0.06764733791351318,
+      0.07418777048587799,
+      0.13581256568431854,
+      0.18037350475788116,
+      0.2638821005821228
+    ],
+    "entropy_mean": 2.216515064239502,
+    "fine_mass_last3": 0.5800681114196777
+  }
+}

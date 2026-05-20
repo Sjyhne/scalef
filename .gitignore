@@ -214,6 +214,8 @@ tci_super_resolved/
 !single_samples/satburst_synth/**
 !single_samples/satburst_real/
 !single_samples/satburst_real/**
+!single_samples/worldstrat_sweet/
+!single_samples/worldstrat_sweet/**
 single_samples/**/*.png
 df4*
 sr_outputs_df4/
@@ -236,6 +238,7 @@ vøra*
 real_world_data/
 samle_mappe
 worldstrat_datasets
+worldstrat_test_data
 handheld/results*
 handheld/single_exposure_data/
 handheld/synthetic burst/

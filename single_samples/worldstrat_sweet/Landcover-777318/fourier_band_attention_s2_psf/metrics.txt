@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: Landcover-777318
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 28.35 dB
+    - Bilinear Interpolation: 28.55 dB
+    - PSNR Improvement: -0.20 dB
+
+    SSIM Results:
+    - Model Output: 0.7598
+    - Bilinear Interpolation: 0.7438
+    - SSIM Improvement: 0.0160
+
+    LPIPS Results:
+    - Model Output: 0.5612
+    - Bilinear Interpolation: 0.4949
+    - LPIPS Improvement: -0.0663
+
+    Training Results:
+    - Final Test Loss: 0.001463
+    - Final Test PSNR: 28.35 dB
+    - Final Reconstruction Loss: 0.163234
+    - Final Transformation Loss: 0.000201
+    - Final Total Loss: 0.163234
+
+    Timing:
+    - Training time: 13.87 s (0.23 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0069 s
+    - Final evaluation time: 3.14 s
+    - Total runtime: 17.01 s (0.28 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 27.24 - 28.41 dB
+- Reconstruction loss range: 0.134213 - 0.567327
+- Transformation loss range: 0.000020 - 0.000201
+- Total loss range: 0.134213 - 0.567327
+- Final PSNR: 28.35 dB
+- Final reconstruction loss: 0.163234
+- Final transformation loss: 0.000201
+- Final total loss: 0.163234

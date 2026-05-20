@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_real
+    Sample ID: s2_patch_center
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 27.71 dB
+    - Bilinear Interpolation: 45.04 dB
+    - PSNR Improvement: -17.32 dB
+
+    SSIM Results:
+    - Model Output: 0.8552
+    - Bilinear Interpolation: 0.9898
+    - SSIM Improvement: -0.1346
+
+    LPIPS Results:
+    - Model Output: 0.2816
+    - Bilinear Interpolation: 0.0460
+    - LPIPS Improvement: -0.2356
+
+    Training Results:
+    - Final Test Loss: 0.001814
+    - Final Test PSNR: 27.41 dB
+    - Final Reconstruction Loss: 0.174599
+    - Final Transformation Loss: 0.000015
+    - Final Total Loss: 0.174599
+
+    Timing:
+    - Training time: 9.36 s (0.16 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0047 s
+    - Final evaluation time: 3.20 s
+    - Total runtime: 12.56 s (0.21 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 27.41 - 28.99 dB
+- Reconstruction loss range: 0.050634 - 0.190259
+- Transformation loss range: 0.000001 - 0.000141
+- Total loss range: 0.050634 - 0.190259
+- Final PSNR: 27.41 dB
+- Final reconstruction loss: 0.174599
+- Final transformation loss: 0.000015
+- Final total loss: 0.174599

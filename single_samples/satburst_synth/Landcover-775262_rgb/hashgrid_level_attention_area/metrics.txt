@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: Landcover-775262_rgb
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 33.58 dB
+    - Bilinear Interpolation: 27.96 dB
+    - PSNR Improvement: 5.62 dB
+
+    SSIM Results:
+    - Model Output: 0.9005
+    - Bilinear Interpolation: 0.5774
+    - SSIM Improvement: 0.3231
+
+    LPIPS Results:
+    - Model Output: 0.2138
+    - Bilinear Interpolation: 0.4980
+    - LPIPS Improvement: 0.2842
+
+    Training Results:
+    - Final Test Loss: 0.000438
+    - Final Test PSNR: 33.58 dB
+    - Final Reconstruction Loss: 0.004762
+    - Final Transformation Loss: 0.016048
+    - Final Total Loss: 0.004762
+
+    Timing:
+    - Training time: 13.78 s (0.23 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0069 s
+    - Final evaluation time: 3.31 s
+    - Total runtime: 17.08 s (0.28 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 27.91 - 33.58 dB
+- Reconstruction loss range: 0.004762 - 0.160276
+- Transformation loss range: 0.012024 - 0.017254
+- Total loss range: 0.004762 - 0.160276
+- Final PSNR: 33.58 dB
+- Final reconstruction loss: 0.004762
+- Final transformation loss: 0.016048
+- Final total loss: 0.004762

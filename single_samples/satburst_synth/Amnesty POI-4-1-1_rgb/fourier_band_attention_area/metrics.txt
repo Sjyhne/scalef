@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: Amnesty POI-4-1-1_rgb
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 31.16 dB
+    - Bilinear Interpolation: 30.38 dB
+    - PSNR Improvement: 0.78 dB
+
+    SSIM Results:
+    - Model Output: 0.7791
+    - Bilinear Interpolation: 0.7896
+    - SSIM Improvement: -0.0104
+
+    LPIPS Results:
+    - Model Output: 0.4591
+    - Bilinear Interpolation: 0.3921
+    - LPIPS Improvement: -0.0670
+
+    Training Results:
+    - Final Test Loss: 0.000766
+    - Final Test PSNR: 31.16 dB
+    - Final Reconstruction Loss: 0.032537
+    - Final Transformation Loss: 0.010169
+    - Final Total Loss: 0.032537
+
+    Timing:
+    - Training time: 12.17 s (0.20 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0061 s
+    - Final evaluation time: 3.75 s
+    - Total runtime: 15.91 s (0.27 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 27.22 - 31.16 dB
+- Reconstruction loss range: 0.030341 - 0.306784
+- Transformation loss range: 0.001765 - 0.012149
+- Total loss range: 0.030341 - 0.306784
+- Final PSNR: 31.16 dB
+- Final reconstruction loss: 0.032537
+- Final transformation loss: 0.010169
+- Final total loss: 0.032537

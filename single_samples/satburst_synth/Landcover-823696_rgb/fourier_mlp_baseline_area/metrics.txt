@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: Landcover-823696_rgb
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 36.48 dB
+    - Bilinear Interpolation: 30.02 dB
+    - PSNR Improvement: 6.46 dB
+
+    SSIM Results:
+    - Model Output: 0.9315
+    - Bilinear Interpolation: 0.7829
+    - SSIM Improvement: 0.1486
+
+    LPIPS Results:
+    - Model Output: 0.1586
+    - Bilinear Interpolation: 0.3644
+    - LPIPS Improvement: 0.2057
+
+    Training Results:
+    - Final Test Loss: 0.000225
+    - Final Test PSNR: 36.48 dB
+    - Final Reconstruction Loss: 0.001460
+    - Final Transformation Loss: 0.012300
+    - Final Total Loss: 0.001460
+
+    Timing:
+    - Training time: 7.82 s (0.13 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0039 s
+    - Final evaluation time: 3.34 s
+    - Total runtime: 11.16 s (0.19 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 31.45 - 36.48 dB
+- Reconstruction loss range: 0.000984 - 0.042400
+- Transformation loss range: 0.010972 - 0.013930
+- Total loss range: 0.000984 - 0.042400
+- Final PSNR: 36.48 dB
+- Final reconstruction loss: 0.001460
+- Final transformation loss: 0.012300
+- Final total loss: 0.001460

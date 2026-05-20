@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: Amnesty POI-9-3-2
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 20.71 dB
+    - Bilinear Interpolation: 20.73 dB
+    - PSNR Improvement: -0.02 dB
+
+    SSIM Results:
+    - Model Output: 0.2795
+    - Bilinear Interpolation: 0.2768
+    - SSIM Improvement: 0.0027
+
+    LPIPS Results:
+    - Model Output: 0.6359
+    - Bilinear Interpolation: 0.6962
+    - LPIPS Improvement: 0.0603
+
+    Training Results:
+    - Final Test Loss: 0.008498
+    - Final Test PSNR: 20.71 dB
+    - Final Reconstruction Loss: 0.176080
+    - Final Transformation Loss: 0.000134
+    - Final Total Loss: 0.176080
+
+    Timing:
+    - Training time: 7.95 s (0.13 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0040 s
+    - Final evaluation time: 3.23 s
+    - Total runtime: 11.18 s (0.19 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 20.71 - 20.90 dB
+- Reconstruction loss range: 0.136713 - 0.333621
+- Transformation loss range: 0.000066 - 0.000134
+- Total loss range: 0.136713 - 0.333621
+- Final PSNR: 20.71 dB
+- Final reconstruction loss: 0.176080
+- Final transformation loss: 0.000134
+- Final total loss: 0.176080

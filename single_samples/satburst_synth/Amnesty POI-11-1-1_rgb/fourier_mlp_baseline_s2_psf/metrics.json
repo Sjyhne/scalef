@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Amnesty POI-11-1-1_rgb",
+  "run_name": "fourier_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id 'Amnesty POI-11-1-1_rgb' --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name fourier_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 29.490705490112305,
+    "bilinear": 29.35091209411621,
+    "improvement": 0.13979339599609375
+  },
+  "ssim": {
+    "model": 0.8211174607276917,
+    "bilinear": 0.716486394405365,
+    "improvement": 0.10463106632232666
+  },
+  "lpips": {
+    "model": 0.3189585506916046,
+    "bilinear": 0.4185786247253418,
+    "improvement": 0.09962007403373718
+  },
+  "training": {
+    "final_test_loss": 0.001129905809648335,
+    "final_test_psnr": 29.4695782661438,
+    "final_recon_loss": 0.009299622848629951,
+    "final_trans_loss": 0.01651668116416711,
+    "final_total_loss": 0.009299622848629951,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.41193962097168,
+    "time_per_iteration_seconds": 0.00470596981048584,
+    "evaluation_time_seconds": 3.184941291809082,
+    "total_runtime_seconds": 12.596882104873657
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "dataset": "satburst_real",
+  "sample_id": "s2_patch_center",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_real --satburst_data_root data_real --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --sample_id s2_patch_center --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 27.996482849121094,
+    "bilinear": 45.03561019897461,
+    "improvement": -17.039127349853516
+  },
+  "ssim": {
+    "model": 0.89508455991745,
+    "bilinear": 0.9898216128349304,
+    "improvement": -0.09473705291748047
+  },
+  "lpips": {
+    "model": 0.2883126437664032,
+    "bilinear": 0.045976221561431885,
+    "improvement": -0.2423364222049713
+  },
+  "training": {
+    "final_test_loss": 0.00260729668661952,
+    "final_test_psnr": 25.838096141815186,
+    "final_recon_loss": 0.16456174850463867,
+    "final_trans_loss": 3.650589226638438e-05,
+    "final_total_loss": 0.16456174850463867,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.743963241577148,
+    "time_per_iteration_seconds": 0.0038719816207885742,
+    "evaluation_time_seconds": 3.4275190830230713,
+    "total_runtime_seconds": 11.171484231948853
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

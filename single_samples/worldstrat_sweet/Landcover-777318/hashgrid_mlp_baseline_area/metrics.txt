@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: Landcover-777318
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 29.76 dB
+    - Bilinear Interpolation: 28.55 dB
+    - PSNR Improvement: 1.21 dB
+
+    SSIM Results:
+    - Model Output: 0.8067
+    - Bilinear Interpolation: 0.7438
+    - SSIM Improvement: 0.0629
+
+    LPIPS Results:
+    - Model Output: 0.4512
+    - Bilinear Interpolation: 0.4949
+    - LPIPS Improvement: 0.0437
+
+    Training Results:
+    - Final Test Loss: 0.001056
+    - Final Test PSNR: 29.76 dB
+    - Final Reconstruction Loss: 0.103988
+    - Final Transformation Loss: 0.000164
+    - Final Total Loss: 0.103988
+
+    Timing:
+    - Training time: 7.86 s (0.13 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0039 s
+    - Final evaluation time: 3.22 s
+    - Total runtime: 11.09 s (0.18 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 29.42 - 29.80 dB
+- Reconstruction loss range: 0.086749 - 0.183918
+- Transformation loss range: 0.000101 - 0.000164
+- Total loss range: 0.086749 - 0.183918
+- Final PSNR: 29.76 dB
+- Final reconstruction loss: 0.103988
+- Final transformation loss: 0.000164
+- Final total loss: 0.103988

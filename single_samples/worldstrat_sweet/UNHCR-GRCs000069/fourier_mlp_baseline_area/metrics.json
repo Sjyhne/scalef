@@ -1,0 +1,53 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "UNHCR-GRCs000069",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id UNHCR-GRCs000069 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 22.42454719543457,
+    "bilinear": 22.94284439086914,
+    "improvement": -0.5182971954345703
+  },
+  "ssim": {
+    "model": 0.6041502952575684,
+    "bilinear": 0.6370585560798645,
+    "improvement": -0.03290826082229614
+  },
+  "lpips": {
+    "model": 0.4826434850692749,
+    "bilinear": 0.5419168472290039,
+    "improvement": 0.059273362159729004
+  },
+  "training": {
+    "final_test_loss": 0.005721963942050934,
+    "final_test_psnr": 22.42454767227173,
+    "final_recon_loss": 0.026438746601343155,
+    "final_trans_loss": 0.00020904459787257293,
+    "final_total_loss": 0.026438746601343155,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.556702375411987,
+    "time_per_iteration_seconds": 0.0037783511877059936,
+    "evaluation_time_seconds": 3.207923173904419,
+    "total_runtime_seconds": 10.76462697982788
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

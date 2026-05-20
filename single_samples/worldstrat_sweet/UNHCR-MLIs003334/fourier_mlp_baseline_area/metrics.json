@@ -1,0 +1,53 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "UNHCR-MLIs003334",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id UNHCR-MLIs003334 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 31.05539894104004,
+    "bilinear": 29.79047393798828,
+    "improvement": 1.2649250030517578
+  },
+  "ssim": {
+    "model": 0.838007926940918,
+    "bilinear": 0.8522503972053528,
+    "improvement": -0.014242470264434814
+  },
+  "lpips": {
+    "model": 0.5080955028533936,
+    "bilinear": 0.544765293598175,
+    "improvement": 0.036669790744781494
+  },
+  "training": {
+    "final_test_loss": 0.0007842597551643848,
+    "final_test_psnr": 31.055400371551514,
+    "final_recon_loss": 0.10622061789035797,
+    "final_trans_loss": 0.0001825786821144359,
+    "final_total_loss": 0.10622061789035797,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.800549030303955,
+    "time_per_iteration_seconds": 0.0039002745151519775,
+    "evaluation_time_seconds": 3.2372782230377197,
+    "total_runtime_seconds": 11.03782868385315
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

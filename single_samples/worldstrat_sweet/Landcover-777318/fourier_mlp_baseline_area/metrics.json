@@ -1,0 +1,53 @@
+{
+  "dataset": "worldstrat_sweet",
+  "sample_id": "Landcover-777318",
+  "run_name": "fourier_mlp_baseline_area",
+  "command": "/workspaces/scalef/optimize.py --dataset worldstrat_sweet --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --worldstrat_data_root worldstrat_datasets/worldstrat_sweet --df 4 --sample_id Landcover-777318 --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation area --run_name fourier_mlp_baseline_area --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "area",
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 29.767454147338867,
+    "bilinear": 28.55107879638672,
+    "improvement": 1.2163753509521484
+  },
+  "ssim": {
+    "model": 0.8066785335540771,
+    "bilinear": 0.7437790036201477,
+    "improvement": 0.06289952993392944
+  },
+  "lpips": {
+    "model": 0.452933669090271,
+    "bilinear": 0.49493855237960815,
+    "improvement": 0.04200488328933716
+  },
+  "training": {
+    "final_test_loss": 0.001055005006492138,
+    "final_test_psnr": 29.76745367050171,
+    "final_recon_loss": 0.10296915471553802,
+    "final_trans_loss": 0.00016044863792772894,
+    "final_total_loss": 0.10296915471553802,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.743197679519653,
+    "time_per_iteration_seconds": 0.0038715988397598267,
+    "evaluation_time_seconds": 3.222628593444824,
+    "total_runtime_seconds": 10.96582841873169
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

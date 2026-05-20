@@ -1,0 +1,67 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Amnesty POI-4-1-1_rgb",
+  "run_name": "fourier_band_attention_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:0 --sample_id 'Amnesty POI-4-1-1_rgb' --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model fourier_band_attn --attn_token_dim 32 --fourier_num_bands 8 --log_attention --lr_degradation s2_psf --run_name fourier_band_attention_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "fourier_band_attn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 29.05970001220703,
+    "bilinear": 30.38006019592285,
+    "improvement": -1.3203601837158203
+  },
+  "ssim": {
+    "model": 0.6904383301734924,
+    "bilinear": 0.7895834445953369,
+    "improvement": -0.09914511442184448
+  },
+  "lpips": {
+    "model": 0.49840325117111206,
+    "bilinear": 0.39210137724876404,
+    "improvement": -0.10630187392234802
+  },
+  "training": {
+    "final_test_loss": 0.0012445100583136082,
+    "final_test_psnr": 29.050016403198242,
+    "final_recon_loss": 0.04873384162783623,
+    "final_trans_loss": 0.010163194326512807,
+    "final_total_loss": 0.04873384162783623,
+    "completed_iterations": 2000,
+    "training_time_seconds": 13.360879182815552,
+    "time_per_iteration_seconds": 0.006680439591407776,
+    "evaluation_time_seconds": 3.446381092071533,
+    "total_runtime_seconds": 16.807267427444458
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  },
+  "attention": {
+    "mean_by_level": [
+      0.09236941486597061,
+      0.12054596841335297,
+      0.13070714473724365,
+      0.15882274508476257,
+      0.10455486178398132,
+      0.1331002116203308,
+      0.12093928456306458,
+      0.13896037638187408
+    ],
+    "entropy_mean": 1.9925419092178345,
+    "fine_mass_last3": 0.39299988746643066
+  }
+}

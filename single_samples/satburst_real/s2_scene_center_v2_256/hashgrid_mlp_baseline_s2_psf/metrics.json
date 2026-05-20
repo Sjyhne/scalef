@@ -1,0 +1,61 @@
+{
+  "dataset": "satburst_real",
+  "sample_id": "s2_scene_center_v2_256",
+  "run_name": "hashgrid_mlp_baseline_s2_psf",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_real --satburst_data_root data_real --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:1 --sample_id s2_scene_center_v2_256 --input_projection hashgrid --hash_n_levels 16 --hash_n_features_per_level 2 --hash_log2_hashmap_size 21 --hash_base_resolution 0 --hash_max_resolution 0 --hash_encoding_dtype fp32 --hash_encoding_preset smoothstep_grid --hash_grid_type Hash --network_depth 4 --network_hidden_dim 256 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --lr_degradation s2_psf --run_name hashgrid_mlp_baseline_s2_psf --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "lr_degradation": "s2_psf",
+  "model": "mlp_tcnn",
+  "input_projection": "hashgrid_tcnn",
+  "hash_base_resolution": 64,
+  "hash_max_resolution": 256,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 30.903223037719727,
+    "bilinear": 48.435508728027344,
+    "improvement": -17.532285690307617
+  },
+  "ssim": {
+    "model": 0.8850467801094055,
+    "bilinear": 0.9937582015991211,
+    "improvement": -0.10871142148971558
+  },
+  "lpips": {
+    "model": 0.25202515721321106,
+    "bilinear": 0.033201247453689575,
+    "improvement": -0.21882390975952148
+  },
+  "training": {
+    "final_test_loss": 0.0008122272556647658,
+    "final_test_psnr": 30.90322494506836,
+    "final_recon_loss": 0.07241643965244293,
+    "final_trans_loss": 6.894795075618032e-06,
+    "final_total_loss": 0.07241643965244293,
+    "completed_iterations": 2000,
+    "training_time_seconds": 36.161365270614624,
+    "time_per_iteration_seconds": 0.01808068263530731,
+    "evaluation_time_seconds": 5.40701961517334,
+    "total_runtime_seconds": 41.568387269973755
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": true,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": {
+      "y0": 1024,
+      "x0": 1472,
+      "h_min": 2137,
+      "w_min": 2945,
+      "patch_size": 256,
+      "reference_patch_size": 256,
+      "shared_eval_crop_lr_size": 256
+    }
+  }
+}

@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: worldstrat_sweet
+    Sample ID: Landcover-777318
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 29.97 dB
+    - Bilinear Interpolation: 28.55 dB
+    - PSNR Improvement: 1.42 dB
+
+    SSIM Results:
+    - Model Output: 0.8121
+    - Bilinear Interpolation: 0.7438
+    - SSIM Improvement: 0.0684
+
+    LPIPS Results:
+    - Model Output: 0.4405
+    - Bilinear Interpolation: 0.4949
+    - LPIPS Improvement: 0.0544
+
+    Training Results:
+    - Final Test Loss: 0.001006
+    - Final Test PSNR: 29.97 dB
+    - Final Reconstruction Loss: 0.117774
+    - Final Transformation Loss: 0.000145
+    - Final Total Loss: 0.117774
+
+    Timing:
+    - Training time: 15.70 s (0.26 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0079 s
+    - Final evaluation time: 3.12 s
+    - Total runtime: 18.83 s (0.31 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 28.58 - 29.99 dB
+- Reconstruction loss range: 0.100036 - 0.341303
+- Transformation loss range: 0.000051 - 0.000145
+- Total loss range: 0.100036 - 0.341303
+- Final PSNR: 29.97 dB
+- Final reconstruction loss: 0.117774
+- Final transformation loss: 0.000145
+- Final total loss: 0.117774

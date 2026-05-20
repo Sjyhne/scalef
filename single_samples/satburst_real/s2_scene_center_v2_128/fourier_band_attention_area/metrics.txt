@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_real
+    Sample ID: s2_scene_center_v2_128
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: LR=64px, HR=256px
+
+    PSNR Results:
+    - Model Output: 31.70 dB
+    - Bilinear Interpolation: 48.44 dB
+    - PSNR Improvement: -16.73 dB
+
+    SSIM Results:
+    - Model Output: 0.8885
+    - Bilinear Interpolation: 0.9938
+    - SSIM Improvement: -0.1052
+
+    LPIPS Results:
+    - Model Output: 0.3694
+    - Bilinear Interpolation: 0.0332
+    - LPIPS Improvement: -0.3362
+
+    Training Results:
+    - Final Test Loss: 0.000676
+    - Final Test PSNR: 31.70 dB
+    - Final Reconstruction Loss: 0.276897
+    - Final Transformation Loss: 0.000029
+    - Final Total Loss: 0.276897
+
+    Timing:
+    - Training time: 29.54 s (0.49 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0148 s
+    - Final evaluation time: 5.55 s
+    - Total runtime: 35.10 s (0.58 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 28.22 - 31.73 dB
+- Reconstruction loss range: 0.085537 - 0.404677
+- Transformation loss range: 0.000003 - 0.000030
+- Total loss range: 0.085537 - 0.404677
+- Final PSNR: 31.70 dB
+- Final reconstruction loss: 0.276897
+- Final transformation loss: 0.000029
+- Final total loss: 0.276897
