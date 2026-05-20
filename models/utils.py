@@ -48,6 +48,11 @@ def get_decoder(
     tcnn_mlp_dtype="fp16",
     mlp_init="kaiming",
     device=None,
+    hash_n_levels=None,
+    hash_n_features_per_level=None,
+    hash_attn_token_dim=32,
+    attn_token_dim=32,
+    fourier_num_bands=8,
 ):
     if network_name == "mlp":
         return MLP(
@@ -70,7 +75,30 @@ def get_decoder(
         )
     elif network_name == "nir":
         return NIR(input_dim=input_dim, hidden_dim=network_hidden_dim, depth=network_depth, output_dim=output_dim)
+    elif network_name == "hash_attn":
+        from models.hash_attention_decoder import HashLevelAttentionDecoderLite
+
+        if hash_n_levels is None or hash_n_features_per_level is None:
+            raise ValueError("hash_attn requires hash_n_levels and hash_n_features_per_level")
+        return HashLevelAttentionDecoderLite(
+            n_levels=hash_n_levels,
+            n_features_per_level=hash_n_features_per_level,
+            token_dim=hash_attn_token_dim,
+            hidden_dim=network_hidden_dim,
+            out_dim=output_dim,
+        )
+    elif network_name == "fourier_band_attn":
+        from models.fourier_band_attention_decoder import FourierBandAttentionDecoderLite
+
+        return FourierBandAttentionDecoderLite(
+            input_dim=input_dim,
+            num_bands=fourier_num_bands,
+            token_dim=attn_token_dim,
+            hidden_dim=network_hidden_dim,
+            out_dim=output_dim,
+        )
     else:
         raise ValueError(
-            f"Network name {network_name} not recognized. Use 'mlp', 'mlp_tcnn', or 'nir'."
+            f"Network name {network_name} not recognized. "
+            "Use 'mlp', 'mlp_tcnn', 'nir', 'hash_attn', or 'fourier_band_attn'."
         )

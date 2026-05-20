@@ -34,6 +34,8 @@ _preload_bundled_nvjitlink()
 import argparse
 import json
 import random
+import shlex
+import sys
 from datetime import datetime
 
 import cv2
@@ -73,10 +75,172 @@ def satburst_scene_dir(args) -> str:
     return f"{root}/{args.sample_id}/scale_{args.df}_shift_{args.lr_shift:.1f}px_aug_{args.aug}"
 
 
+def _lr_max_side_from_satburst_scene(args) -> int | None:
+    """Largest LR side (max H, W) from ``transform_log.json`` for the current scene."""
+    if getattr(args, "dataset", "") not in ("satburst_synth", "satburst_real"):
+        return None
+    tl_path = Path(satburst_scene_dir(args)) / "transform_log.json"
+    if not tl_path.is_file():
+        return None
+    with tl_path.open("r") as f:
+        log = json.load(f)
+    sides: list[int] = []
+    for v in log.values():
+        sh = v.get("shape") if isinstance(v, dict) else None
+        if isinstance(sh, (list, tuple)) and len(sh) >= 2:
+            sides.append(max(int(sh[0]), int(sh[1])))
+    return max(sides) if sides else None
+
+
+def resolve_hash_grid_resolutions(args, *, canon: str | None = None) -> tuple[int, int]:
+    """Coarsest and finest HashGrid level resolutions.
+
+    For satburst scenes, when CLI values are 0 (default):
+    - ``hash_max_resolution`` = max LR side from ``transform_log.json``
+    - ``hash_base_resolution`` = max(8, LR side // 4) so the multires span scales with patch size
+
+    Pass explicit positive values to override either knob independently.
+    """
+    if canon is None:
+        canon, _ = normalize_input_projection_name(args.input_projection, args.fourier_scale)
+    if canon != "hashgrid_tcnn":
+        base = int(getattr(args, "hash_base_resolution", 0) or 0) or 8
+        mx = int(getattr(args, "hash_max_resolution", 0) or 0) or 48
+        return base, mx
+
+    explicit_max = int(getattr(args, "hash_max_resolution", 0) or 0)
+    explicit_base = int(getattr(args, "hash_base_resolution", 0) or 0)
+
+    lr_side = _lr_max_side_from_satburst_scene(args)
+    if explicit_max > 0:
+        hash_max = explicit_max
+    elif lr_side is not None and lr_side > 0:
+        hash_max = int(lr_side)
+    else:
+        hash_max = 48
+
+    if explicit_base > 0:
+        hash_base = explicit_base
+    elif lr_side is not None and lr_side > 0:
+        hash_base = max(8, int(lr_side) // 4)
+    else:
+        hash_base = 8
+
+    if hash_base >= hash_max:
+        hash_base = max(8, hash_max // 4)
+    return hash_base, hash_max
+
+
+def resolve_hash_max_resolution(args, *, canon: str | None = None) -> int:
+    """Finest HashGrid level (see ``resolve_hash_grid_resolutions``)."""
+    return resolve_hash_grid_resolutions(args, canon=canon)[1]
+
+
 import time
 
 import lpips
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
+
+
+def _hwc_to_bchw(x: torch.Tensor) -> torch.Tensor:
+    """Convert [B,H,W,C] or [H,W,C] to [B,C,H,W] on the same device (no host copy)."""
+    if x.dim() == 3:
+        x = x.unsqueeze(0)
+    return x.permute(0, 3, 1, 2).contiguous()
+
+
+def _bchw_to_hwc_np(t: torch.Tensor) -> np.ndarray:
+    return np.clip(t.squeeze(0).permute(1, 2, 0).detach().cpu().numpy(), 0.0, 1.0)
+
+
+def _psnr_bchw(pred_bchw: torch.Tensor, gt_bchw: torch.Tensor) -> float:
+    return peak_signal_noise_ratio(
+        pred_bchw.detach().cpu(), gt_bchw.detach().cpu(), data_range=1.0
+    ).item()
+
+
+def _save_comparison_quad(
+    sample_dir: Path,
+    filename: str,
+    lr_hwc: np.ndarray,
+    bilinear_hwc: np.ndarray,
+    pred_hwc: np.ndarray,
+    gt_hwc: np.ndarray,
+    *,
+    model_psnr: float,
+    bilinear_psnr: float,
+    banner: str = "",
+) -> None:
+    """2×2 panel: LR | bilinear, model | GT."""
+    lr_hwc = np.clip(lr_hwc, 0.0, 1.0)
+    bilinear_hwc = np.clip(bilinear_hwc, 0.0, 1.0)
+    pred_hwc = np.clip(pred_hwc, 0.0, 1.0)
+    gt_hwc = np.clip(gt_hwc, 0.0, 1.0)
+    if lr_hwc.ndim == 3 and lr_hwc.shape[0] == 3:
+        lr_hwc = np.transpose(lr_hwc, (1, 2, 0))
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+    if banner:
+        fig.suptitle(banner, fontsize=13, fontweight="bold", y=1.02)
+
+    axes[0, 0].imshow(lr_hwc)
+    axes[0, 0].set_title("Original LR Image", fontsize=14, fontweight="bold")
+    axes[0, 0].axis("off")
+
+    axes[0, 1].imshow(bilinear_hwc)
+    axes[0, 1].set_title(
+        f"Bilinear Upsampling\nPSNR: {bilinear_psnr:.2f} dB", fontsize=14, fontweight="bold"
+    )
+    axes[0, 1].axis("off")
+
+    axes[1, 0].imshow(pred_hwc)
+    axes[1, 0].set_title(
+        f"Model Output\nPSNR: {model_psnr:.2f} dB", fontsize=14, fontweight="bold"
+    )
+    axes[1, 0].axis("off")
+
+    axes[1, 1].imshow(gt_hwc)
+    axes[1, 1].set_title("Ground Truth HR", fontsize=14, fontweight="bold")
+    axes[1, 1].axis("off")
+
+    plt.tight_layout(pad=2.0)
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(sample_dir / filename, bbox_inches="tight", pad_inches=0.1, dpi=300)
+    plt.close()
+
+
+def _needs_full_comparison(pred_full_bchw: torch.Tensor, pred_crop_bchw: torch.Tensor) -> bool:
+    return tuple(pred_full_bchw.shape[-2:]) != tuple(pred_crop_bchw.shape[-2:])
+
+
+def _save_full_comparison_if_needed(
+    sample_dir: Path,
+    *,
+    pred_full_bchw: torch.Tensor,
+    gt_full_bchw: torch.Tensor,
+    bilinear_full_bchw: torch.Tensor,
+    lr_full_hwc: np.ndarray,
+    lr_bilinear_full_hwc: np.ndarray,
+    pred_crop_bchw: torch.Tensor,
+    lr_h_full: int,
+    lr_w_full: int,
+) -> None:
+    if not _needs_full_comparison(pred_full_bchw, pred_crop_bchw):
+        return
+    full_model_psnr = _psnr_bchw(pred_full_bchw, gt_full_bchw)
+    full_bilinear_psnr = _psnr_bchw(bilinear_full_bchw, gt_full_bchw)
+    full_h, full_w = int(gt_full_bchw.shape[-2]), int(gt_full_bchw.shape[-1])
+    _save_comparison_quad(
+        sample_dir,
+        "comparison_full.png",
+        lr_full_hwc,
+        lr_bilinear_full_hwc,
+        _bchw_to_hwc_np(pred_full_bchw),
+        _bchw_to_hwc_np(gt_full_bchw),
+        model_psnr=full_model_psnr,
+        bilinear_psnr=full_bilinear_psnr,
+        banner=f"Full patch (LR {lr_h_full}×{lr_w_full} → HR {full_h}×{full_w})",
+    )
 
 
 def get_eval_autocast_dtype(eval_mixed_precision, device):
@@ -105,12 +269,33 @@ def _projection_encoded_dim(input_projection, args):
 
 
 def build_input_projection_decoder_bundle(args, device, *, output_dim=3):
-    if args.model not in {"mlp", "mlp_tcnn", "nir"}:
-        raise ValueError(f"Unknown --model {args.model!r}. Use mlp, mlp_tcnn, or nir.")
+    if args.model not in {"mlp", "mlp_tcnn", "nir", "hash_attn", "fourier_band_attn"}:
+        raise ValueError(
+            f"Unknown --model {args.model!r}. "
+            "Use mlp, mlp_tcnn, nir, hash_attn, or fourier_band_attn."
+        )
 
     canon, fs = normalize_input_projection_name(args.input_projection, args.fourier_scale)
     args.input_projection = canon
     args.fourier_scale = fs
+
+    if args.model == "hash_attn" and canon != "hashgrid_tcnn":
+        raise ValueError("--model hash_attn requires --input_projection hashgrid/hashgrid_tcnn")
+    if args.model == "fourier_band_attn" and canon != "fourier":
+        raise ValueError("--model fourier_band_attn requires --input_projection fourier(_N)")
+
+    hash_base_res, hash_max_res = resolve_hash_grid_resolutions(args, canon=canon)
+    args.hash_base_resolution = hash_base_res
+    args.hash_max_resolution = hash_max_res
+    if canon == "hashgrid_tcnn" and (
+        int(getattr(args, "_hash_max_resolution_cli", 0) or 0) <= 0
+        or int(getattr(args, "_hash_base_resolution_cli", 0) or 0) <= 0
+    ):
+        print(
+            f"HashGrid resolutions for {args.sample_id!r}: "
+            f"base={hash_base_res}, max={hash_max_res} (from LR patch size when CLI is 0)",
+            flush=True,
+        )
 
     input_projection = get_input_projection(
         canon,
@@ -121,8 +306,8 @@ def build_input_projection_decoder_bundle(args, device, *, output_dim=3):
         hash_n_levels=args.hash_n_levels,
         hash_n_features_per_level=args.hash_n_features_per_level,
         hash_log2_hashmap_size=args.hash_log2_hashmap_size,
-        hash_base_resolution=args.hash_base_resolution,
-        hash_max_resolution=args.hash_max_resolution,
+        hash_base_resolution=hash_base_res,
+        hash_max_resolution=hash_max_res,
         hash_encoding_output_dtype=args.hash_encoding_dtype,
         hash_encoding_preset=args.hash_encoding_preset,
         hash_grid_type=args.hash_grid_type,
@@ -140,6 +325,11 @@ def build_input_projection_decoder_bundle(args, device, *, output_dim=3):
         tcnn_mlp_dtype=args.tcnn_mlp_dtype,
         mlp_init=args.mlp_init,
         device=device,
+        hash_n_levels=args.hash_n_levels,
+        hash_n_features_per_level=args.hash_n_features_per_level,
+        hash_attn_token_dim=args.hash_attn_token_dim,
+        attn_token_dim=int(getattr(args, "attn_token_dim", 32)),
+        fourier_num_bands=int(getattr(args, "fourier_num_bands", 8)),
     )
     return input_projection, decoder
 
@@ -230,7 +420,16 @@ def train_one_iteration(
     }
 
 
-def test_one_epoch(model, test_loader, device, eval_autocast_dtype=None):
+def test_one_epoch(
+    model,
+    test_loader,
+    device,
+    eval_autocast_dtype=None,
+    *,
+    eval_crop_lr_size: int = 0,
+    df: int = 4,
+    crop_anchor: str = "topleft",
+):
     model.eval()
 
     with torch.no_grad():
@@ -255,10 +454,26 @@ def test_one_epoch(model, test_loader, device, eval_autocast_dtype=None):
             device
         )
 
+        if int(eval_crop_lr_size) > 0:
+            crop_info = apply_eval_center_crop(
+                pred_bchw=output.permute(0, 3, 1, 2),
+                bilinear_bchw=output.permute(0, 3, 1, 2),
+                gt_bchw=hr_image.permute(0, 3, 1, 2),
+                lr_hwc=None,
+                crop_lr_size=int(eval_crop_lr_size),
+                df=int(df),
+                crop_anchor=str(crop_anchor),
+            )
+            output = crop_info["pred_bchw"].permute(0, 2, 3, 1)
+            hr_image = crop_info["gt_bchw"].permute(0, 2, 3, 1)
+
         loss = F.mse_loss(output, hr_image)
 
         # Calculate PSNR
         psnr = -10 * torch.log10(loss)
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     return loss.item(), psnr.item()
 
@@ -316,7 +531,16 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
 
             # Periodic evaluation
             if iteration % 100 == 0:
-                test_loss, test_psnr = test_one_epoch(model, train_data, device)
+                eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
+                test_loss, test_psnr = test_one_epoch(
+                    model,
+                    train_data,
+                    device,
+                    eval_autocast_dtype,
+                    eval_crop_lr_size=int(getattr(args, "eval_crop_lr_size", 0) or 0),
+                    df=int(args.df),
+                    crop_anchor=str(getattr(args, "eval_crop_anchor", "topleft")),
+                )
                 print(
                     f"\nIter {iteration}: Train Loss: {train_losses['total_loss']:.6f}, "
                     f"Test Loss: {test_loss:.6f}, Test PSNR: {test_psnr:.2f} dB"
@@ -362,19 +586,8 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         final_test_loss = F.mse_loss(output, hr_image).item()
         final_psnr = -10 * torch.log10(torch.tensor(final_test_loss)).item()
 
-        # Convert tensors to numpy for alignment and color matching
-        pred_tensor = (
-            torch.from_numpy(output.squeeze().cpu().numpy())
-            .unsqueeze(0)
-            .permute(0, 3, 1, 2)
-            .to(device)
-        )
-        gt_tensor = (
-            torch.from_numpy(hr_image.squeeze().cpu().numpy())
-            .unsqueeze(0)
-            .permute(0, 3, 1, 2)
-            .to(device)
-        )
+        pred_tensor = _hwc_to_bchw(output)
+        gt_tensor = _hwc_to_bchw(hr_image)
 
         # Get LR for bilinear comparison – always work in HWC
         if hasattr(train_data, "get_lr_sample_hwc"):
@@ -425,6 +638,12 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
 
         # Spatial alignment disabled (causes OOM on small GPUs).
 
+        lr_bilinear_hwc = np.clip(lr_bilinear, 0.0, 1.0)
+        pred_full_bchw = pred_aligned
+        gt_full_bchw = gt_tensor
+        bilinear_full_bchw = bilinear_aligned
+        lr_full_hwc = np.clip(lr_original, 0.0, 1.0)
+
         # Optional center-crop of SR/GT/bilinear/LR before metrics+viz so different LR sizes
         # (e.g. 64/128/256/512) are evaluated on the same physical area on the ground.
         eval_crop_info = apply_eval_center_crop(
@@ -432,16 +651,20 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
             bilinear_bchw=bilinear_aligned,
             gt_bchw=gt_tensor,
             lr_hwc=lr_original,
+            lr_bilinear_hwc=lr_bilinear_hwc,
             crop_lr_size=int(getattr(args, "eval_crop_lr_size", 0) or 0),
             df=int(args.df),
+            crop_anchor=str(getattr(args, "eval_crop_anchor", "topleft")),
         )
         pred_aligned = eval_crop_info["pred_bchw"]
         bilinear_aligned = eval_crop_info["bilinear_bchw"]
         gt_tensor = eval_crop_info["gt_bchw"]
         lr_original = eval_crop_info["lr_hwc"]
+        if eval_crop_info.get("lr_bilinear_hwc") is not None:
+            lr_bilinear_hwc = eval_crop_info["lr_bilinear_hwc"]
         if eval_crop_info["cropped"]:
             print(
-                "Eval center-crop active: LR -> "
+                f"Eval crop ({eval_crop_info.get('crop_anchor', 'topleft')}): LR -> "
                 f"{eval_crop_info['lr_crop']}px, HR/SR/GT -> {eval_crop_info['hr_crop']}px "
                 f"(--eval_crop_lr_size={int(args.eval_crop_lr_size)} * df={int(args.df)})."
             )
@@ -449,23 +672,19 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
             final_psnr = -10 * torch.log10(torch.tensor(final_test_loss)).item()
 
         # Calculate comprehensive metrics using aligned tensors
-        model_psnr = peak_signal_noise_ratio(
-            pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0
-        ).item()
-        bilinear_psnr = peak_signal_noise_ratio(
-            bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0
-        ).item()
+        pred_cpu = pred_aligned.detach().cpu()
+        gt_cpu = gt_tensor.detach().cpu()
+        bilinear_cpu = bilinear_aligned.detach().cpu()
 
-        model_ssim = ssim(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
+        model_psnr = peak_signal_noise_ratio(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_psnr = peak_signal_noise_ratio(bilinear_cpu, gt_cpu, data_range=1.0).item()
+
+        model_ssim = ssim(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_ssim = ssim(bilinear_cpu, gt_cpu, data_range=1.0).item()
 
         lpips_fn = lpips.LPIPS(net="vgg").to(device)
-        model_lpips = lpips_fn(
-            (pred_aligned * 2 - 1).to(device), (gt_tensor * 2 - 1).to(device)
-        ).item()
-        bilinear_lpips = lpips_fn(
-            (bilinear_aligned * 2 - 1).to(device), (gt_tensor * 2 - 1).to(device)
-        ).item()
+        model_lpips = lpips_fn((pred_aligned * 2 - 1), (gt_tensor * 2 - 1)).item()
+        bilinear_lpips = lpips_fn((bilinear_aligned * 2 - 1), (gt_tensor * 2 - 1)).item()
 
         # Calculate additional metrics
         # MSE (Mean Squared Error)
@@ -496,32 +715,37 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         sample_dir = output_dir / f"sample_{sample_idx:03d}"
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create comparison figure
-        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+        crop_banner = ""
+        if eval_crop_info["cropped"]:
+            lr_c, hr_c = eval_crop_info["lr_crop"], eval_crop_info["hr_crop"]
+            crop_banner = (
+                f"Eval crop ({eval_crop_info.get('crop_anchor', 'topleft')}): "
+                f"LR {lr_c}×{lr_c} → HR {hr_c}×{hr_c}"
+            )
 
-        axes[0, 0].imshow(lr_original)
-        axes[0, 0].set_title("Original LR Image", fontsize=14, fontweight="bold")
-        axes[0, 0].axis("off")
-
-        axes[0, 1].imshow(bilinear_aligned_np)
-        axes[0, 1].set_title(
-            f"Bilinear (Aligned)\nPSNR: {bilinear_psnr:.2f} dB", fontsize=14, fontweight="bold"
+        _save_comparison_quad(
+            sample_dir,
+            "comparison.png",
+            lr_original,
+            bilinear_aligned_np,
+            pred_aligned_np,
+            gt_np,
+            model_psnr=model_psnr,
+            bilinear_psnr=bilinear_psnr,
+            banner=crop_banner,
         )
-        axes[0, 1].axis("off")
 
-        axes[1, 0].imshow(pred_aligned_np)
-        axes[1, 0].set_title(
-            f"Model Output (Aligned)\nPSNR: {model_psnr:.2f} dB", fontsize=14, fontweight="bold"
+        _save_full_comparison_if_needed(
+            sample_dir,
+            pred_full_bchw=pred_full_bchw,
+            gt_full_bchw=gt_full_bchw,
+            bilinear_full_bchw=bilinear_full_bchw,
+            lr_full_hwc=lr_full_hwc,
+            lr_bilinear_full_hwc=_bchw_to_hwc_np(bilinear_full_bchw),
+            pred_crop_bchw=pred_aligned,
+            lr_h_full=lr_h,
+            lr_w_full=lr_w,
         )
-        axes[1, 0].axis("off")
-
-        axes[1, 1].imshow(gt_np)
-        axes[1, 1].set_title("Ground Truth HR", fontsize=14, fontweight="bold")
-        axes[1, 1].axis("off")
-
-        plt.tight_layout(pad=2.0)
-        plt.savefig(sample_dir / "comparison.png", bbox_inches="tight", pad_inches=0.1, dpi=300)
-        plt.close()
 
         # Save individual images
         plt.figure(figsize=(8, 8))
@@ -1517,7 +1741,7 @@ def main():
         "--model",
         type=str,
         default="mlp",
-        help="Decoder: mlp | mlp_tcnn | nir.",
+        help="Decoder: mlp | mlp_tcnn | nir | hash_attn | fourier_band_attn.",
     )
     parser.add_argument("--network_depth", type=int, default=4)
     parser.add_argument("--network_hidden_dim", type=int, default=256)
@@ -1536,10 +1760,50 @@ def main():
     parser.add_argument("--hash_grid_type", type=str, default="Hash")
     parser.add_argument("--hash_n_levels", type=int, default=16)
     parser.add_argument("--hash_n_features_per_level", type=int, default=2)
-    parser.add_argument("--hash_log2_hashmap_size", type=int, default=24)
-    parser.add_argument("--hash_base_resolution", type=int, default=8)
-    parser.add_argument("--hash_max_resolution", type=int, default=48)
+    parser.add_argument("--hash_log2_hashmap_size", type=int, default=21)
+    parser.add_argument(
+        "--hash_base_resolution",
+        type=int,
+        default=0,
+        help=(
+            "Coarsest HashGrid level resolution. 0 (default) = max(8, LR_side//4) from "
+            "transform_log.json for satburst scenes; set explicitly to override."
+        ),
+    )
+    parser.add_argument(
+        "--hash_max_resolution",
+        type=int,
+        default=0,
+        help=(
+            "Finest HashGrid level resolution. 0 (default) = LR max side from "
+            "transform_log.json for satburst scenes; set explicitly to override."
+        ),
+    )
     parser.add_argument("--hash_encoding_dtype", type=str, default="fp32", choices=["fp16", "fp32"])
+    parser.add_argument("--hash_attn_token_dim", type=int, default=32)
+    parser.add_argument(
+        "--attn_token_dim",
+        type=int,
+        default=32,
+        help="Token width for attention decoders (currently used by fourier_band_attn).",
+    )
+    parser.add_argument(
+        "--fourier_num_bands",
+        type=int,
+        default=8,
+        help=(
+            "Number of frequency-band tokens for --model fourier_band_attn. Will fall back "
+            "to the nearest divisor of n_bands (sequence 8 -> 4 -> 2 -> 1)."
+        ),
+    )
+    parser.add_argument(
+        "--log_attention",
+        action="store_true",
+        help=(
+            "If set, periodically capture decoder attention diagnostics to "
+            "<run_dir>/attention_log.json (sampled at the PSNR eval cadence)."
+        ),
+    )
 
     parser.add_argument(
         "--heldout_val_frames",
@@ -1610,14 +1874,37 @@ def main():
         type=int,
         default=0,
         help=(
-            "If >0, center-crop SR/GT/bilinear to (eval_crop_lr_size * df) and the LR view to "
-            "eval_crop_lr_size before computing metrics and saving visualizations. Used to compare "
-            "the same physical area across scenes with different LR sizes (e.g. 64/128/256/512). "
-            "0 (default) disables cropping."
+            "If >0, top-left crop SR/GT/bilinear/LR to (eval_crop_lr_size * df) / eval_crop_lr_size "
+            "before headline metrics and comparison.png (detail view for cross-resolution sweeps). "
+            "Training is unaffected unless --train_crop_lr_size is set separately. "
+            "comparison_full.png is saved when the full patch is larger than this crop. "
+            "0 (default) disables eval cropping."
+        ),
+    )
+    parser.add_argument(
+        "--train_crop_lr_size",
+        type=int,
+        default=0,
+        help=(
+            "If >0, center-crop LR supervision and the HR coordinate grid during training to "
+            "train_crop_lr_size (LR) and train_crop_lr_size*df (HR). Use with --eval_crop_lr_size "
+            "on large scenes to avoid OOM from full-grid optimization. 0 = train on full resolution."
+        ),
+    )
+    parser.add_argument(
+        "--eval_crop_anchor",
+        type=str,
+        default="topleft",
+        choices=["topleft", "center"],
+        help=(
+            "How to crop when eval_crop_lr_size>0. ``topleft``: [:64,:64] window (aligned across "
+            "nested scene_center_v2_* exports). ``center``: independent center crop per scene."
         ),
     )
 
     args = parser.parse_args()
+    args._hash_base_resolution_cli = int(args.hash_base_resolution)
+    args._hash_max_resolution_cli = int(args.hash_max_resolution)
 
     # Setup device - allow "cpu" as explicit device string
     if args.device.lower() == "cpu":
@@ -1648,6 +1935,7 @@ def main():
         print(f"Warning: CUDA device {args.device} requested but CUDA not available. Using CPU.")
         device = torch.device("cpu")
 
+    args.resolved_device = str(device)
     print(f"Using device: {device}")
     if device.type == "cuda":
         try:
@@ -1655,6 +1943,12 @@ def main():
             torch.cuda.empty_cache()
         except Exception:
             pass
+    if int(args.train_crop_lr_size) > 0:
+        print(
+            f"Training center crop: LR {int(args.train_crop_lr_size)} px, "
+            f"HR {int(args.train_crop_lr_size) * int(args.df)} px (--train_crop_lr_size).",
+            flush=True,
+        )
     eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
     if eval_autocast_dtype is not None:
         label = "BF16" if eval_autocast_dtype == torch.bfloat16 else "FP16"
@@ -1819,6 +2113,9 @@ def main():
 
     print(f"Starting training for {args.iters} iterations...")
 
+    run_start_time = time.time()
+    training_start_time = run_start_time
+
     # Training loop
     iteration = 0
     progress_bar = tqdm(total=args.iters, desc="Training")
@@ -1829,6 +2126,7 @@ def main():
     trans_loss_list = []
     total_loss_list = []
     iteration_list = []
+    attention_log = []
 
     while iteration < args.iters:
         for train_sample in train_dataloader:
@@ -1873,7 +2171,13 @@ def main():
             if iteration % 100 == 0:
                 eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
                 test_loss, test_psnr = test_one_epoch(
-                    model, train_data, device, eval_autocast_dtype
+                    model,
+                    train_data,
+                    device,
+                    eval_autocast_dtype,
+                    eval_crop_lr_size=int(getattr(args, "eval_crop_lr_size", 0) or 0),
+                    df=int(args.df),
+                    crop_anchor=str(getattr(args, "eval_crop_anchor", "topleft")),
                 )
                 print(
                     f"\nIter {iteration}: Train Loss: {train_losses['total_loss']:.6f}, "
@@ -1898,9 +2202,34 @@ def main():
                 trans_loss_list.append(train_losses["trans_loss"])
                 total_loss_list.append(train_losses["total_loss"])
 
+                if getattr(args, "log_attention", False):
+                    aux = getattr(model, "last_decoder_aux", {}) or {}
+                    if "attn_mean" in aux:
+                        attention_log.append(
+                            {
+                                "iteration": int(iteration),
+                                "attention_mean_per_level": aux["attn_mean"]
+                                .detach()
+                                .cpu()
+                                .tolist(),
+                                "attention_entropy": float(
+                                    aux["attn_entropy_mean"].detach().cpu()
+                                ),
+                                "fine_level_mass": float(
+                                    aux["attn_fine_mass_last3"].detach().cpu()
+                                ),
+                            }
+                        )
+
     progress_bar.close()
 
+    training_end_time = time.time()
+    training_time = training_end_time - training_start_time
+    completed_iters = max(int(iteration), 1)
+    time_per_iteration = training_time / completed_iters
+
     # Final evaluation and save output
+    evaluation_start_time = time.time()
     model.eval()
     eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
     with torch.no_grad():
@@ -1926,9 +2255,8 @@ def main():
         final_test_loss = F.mse_loss(output, hr_image).item()
         final_psnr = -10 * torch.log10(torch.tensor(final_test_loss)).item()
 
-        # Convert tensors to numpy for saving as images
-        pred_np = output.squeeze().cpu().numpy()
-        gt_np = hr_image.squeeze().cpu().numpy()
+        pred_tensor = _hwc_to_bchw(output).clamp(0, 1)
+        gt_tensor = _hwc_to_bchw(hr_image).clamp(0, 1)
 
         # Build a 3-channel LR baseline image for visualization
         if hasattr(train_data, "get_lr_sample_hwc"):
@@ -1966,29 +2294,27 @@ def main():
             # No unstandardization needed - get_lr_sample already returns unstandardized [0, 1] range
 
         lr_h, lr_w = lr_original.shape[:2]
-        hr_h, hr_w = gt_np.shape[:2]
+        hr_h, hr_w = hr_image.shape[1], hr_image.shape[2]
         lr_bilinear = cv2.resize(lr_original, (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
-        pred_np = np.clip(pred_np, 0, 1)
-        gt_np = np.clip(gt_np, 0, 1)
         lr_original = np.clip(lr_original, 0, 1)
         lr_bilinear = np.clip(lr_bilinear, 0, 1)
 
-        # Convert numpy arrays to torch tensors for alignment and color matching
-        pred_tensor = (
-            torch.from_numpy(pred_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)
-        )  # [1, C, H, W]
-        gt_tensor = (
-            torch.from_numpy(gt_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)
-        )  # [1, C, H, W]
         bilinear_tensor = (
             torch.from_numpy(lr_bilinear).unsqueeze(0).permute(0, 3, 1, 2).to(device)
-        )  # [1, C, H, W]
+        )
 
         # Align outputs for fair comparison (following og_main.py approach)
         # Alignment disabled to avoid OOM errors - can be re-enabled if needed
         print("Skipping alignment (disabled to avoid memory issues)")
         pred_aligned = pred_tensor
         bilinear_aligned = bilinear_tensor
+
+        # Keep full-patch tensors for a second visualization when eval crop is active.
+        pred_full_bchw = pred_aligned
+        gt_full_bchw = gt_tensor
+        bilinear_full_bchw = bilinear_aligned
+        lr_full_hwc = np.clip(lr_original, 0.0, 1.0)
+        lr_bilinear_full_hwc = np.clip(lr_bilinear, 0.0, 1.0)
 
         # Optional center-crop of SR/GT/bilinear/LR before metrics+viz so different LR sizes (e.g.
         # 64/128/256/512) are evaluated on the same physical area on the ground.
@@ -2000,6 +2326,7 @@ def main():
             lr_bilinear_hwc=lr_bilinear,
             crop_lr_size=int(getattr(args, "eval_crop_lr_size", 0) or 0),
             df=int(args.df),
+            crop_anchor=str(getattr(args, "eval_crop_anchor", "topleft")),
         )
         pred_aligned = eval_crop_info["pred_bchw"]
         bilinear_aligned = eval_crop_info["bilinear_bchw"]
@@ -2008,7 +2335,7 @@ def main():
         lr_bilinear = eval_crop_info["lr_bilinear_hwc"]
         if eval_crop_info["cropped"]:
             print(
-                "Eval center-crop active: LR -> "
+                f"Eval crop ({eval_crop_info.get('crop_anchor', 'topleft')}): LR -> "
                 f"{eval_crop_info['lr_crop']}px, HR/SR/GT -> {eval_crop_info['hr_crop']}px "
                 f"(--eval_crop_lr_size={int(args.eval_crop_lr_size)} * df={int(args.df)})."
             )
@@ -2021,26 +2348,19 @@ def main():
         gt_np = gt_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
         gt_np = np.clip(gt_np, 0, 1)
 
-        # PSNR - using aligned tensors for fair comparison
-        model_psnr = peak_signal_noise_ratio(
-            pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0
-        ).item()
-        bilinear_psnr = peak_signal_noise_ratio(
-            bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0
-        ).item()
+        pred_cpu = pred_aligned.detach().cpu()
+        gt_cpu = gt_tensor.detach().cpu()
+        bilinear_cpu = bilinear_aligned.detach().cpu()
 
-        # SSIM - using aligned tensors for fair comparison
-        model_ssim = ssim(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
+        model_psnr = peak_signal_noise_ratio(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_psnr = peak_signal_noise_ratio(bilinear_cpu, gt_cpu, data_range=1.0).item()
 
-        # LPIPS (expects [-1,1] range) - using aligned tensors for fair comparison
+        model_ssim = ssim(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_ssim = ssim(bilinear_cpu, gt_cpu, data_range=1.0).item()
+
         lpips_fn = lpips.LPIPS(net="vgg").to(device)
-        pred_lpips = lpips_fn(
-            (pred_aligned * 2 - 1).to(device), (gt_tensor * 2 - 1).to(device)
-        ).item()
-        bilinear_lpips = lpips_fn(
-            (bilinear_aligned * 2 - 1).to(device), (gt_tensor * 2 - 1).to(device)
-        ).item()
+        pred_lpips = lpips_fn((pred_aligned * 2 - 1), (gt_tensor * 2 - 1)).item()
+        bilinear_lpips = lpips_fn((bilinear_aligned * 2 - 1), (gt_tensor * 2 - 1)).item()
 
         # Convert aligned tensors back to numpy for visualization
         pred_aligned_np = pred_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
@@ -2054,39 +2374,38 @@ def main():
         sample_dir = _single_sample_output_dir(args)
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save comparison figure with LR, bilinear upsampling (aligned), model output (aligned), and ground truth
-        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+        crop_banner = ""
+        if eval_crop_info["cropped"]:
+            lr_c, hr_c = eval_crop_info["lr_crop"], eval_crop_info["hr_crop"]
+            crop_banner = (
+                f"Eval crop ({eval_crop_info.get('crop_anchor', 'topleft')}): "
+                f"LR {lr_c}×{lr_c} → HR {hr_c}×{hr_c}"
+            )
 
-        # Original LR image
-        axes[0, 0].imshow(lr_original)
-        axes[0, 0].set_title("Original LR Image", fontsize=14, fontweight="bold")
-        axes[0, 0].axis("off")
-
-        # Bilinear upsampling (color-aligned for fair comparison)
-        axes[0, 1].imshow(bilinear_aligned_np)
-        axes[0, 1].set_title(
-            f"Bilinear Upsampling (Aligned)\nPSNR: {bilinear_psnr:.2f} dB",
-            fontsize=14,
-            fontweight="bold",
+        _save_comparison_quad(
+            sample_dir,
+            "comparison.png",
+            lr_original,
+            bilinear_aligned_np,
+            pred_aligned_np,
+            gt_np,
+            model_psnr=model_psnr,
+            bilinear_psnr=bilinear_psnr,
+            banner=crop_banner,
         )
-        axes[0, 1].axis("off")
-
-        # Model output (aligned)
-        axes[1, 0].imshow(pred_aligned_np)
-        axes[1, 0].set_title(
-            f"Model Output (Aligned)\nPSNR: {model_psnr:.2f} dB", fontsize=14, fontweight="bold"
-        )
-        axes[1, 0].axis("off")
-
-        # Ground truth
-        axes[1, 1].imshow(gt_np)
-        axes[1, 1].set_title("Ground Truth HR", fontsize=14, fontweight="bold")
-        axes[1, 1].axis("off")
-
-        plt.tight_layout(pad=2.0)
         comparison_path = sample_dir / "comparison.png"
-        plt.savefig(comparison_path, bbox_inches="tight", pad_inches=0.1, dpi=300)
-        plt.close()
+
+        _save_full_comparison_if_needed(
+            sample_dir,
+            pred_full_bchw=pred_full_bchw,
+            gt_full_bchw=gt_full_bchw,
+            bilinear_full_bchw=bilinear_full_bchw,
+            lr_full_hwc=lr_full_hwc,
+            lr_bilinear_full_hwc=lr_bilinear_full_hwc,
+            pred_crop_bchw=pred_aligned,
+            lr_h_full=lr_h,
+            lr_w_full=lr_w,
+        )
 
         # Save individual images for reference (using aligned images)
         plt.figure(figsize=(8, 8))
@@ -2133,6 +2452,10 @@ def main():
     print(f"PSNR Improvement: {model_psnr - bilinear_psnr:.2f} dB")
     print(f"Model output saved to {output_path}")
 
+    evaluation_end_time = time.time()
+    evaluation_time = evaluation_end_time - evaluation_start_time
+    total_runtime = evaluation_end_time - run_start_time
+
     # Create structured output directory for single sample results
     sample_dir = _single_sample_output_dir(args)
     sample_dir.mkdir(parents=True, exist_ok=True)
@@ -2176,6 +2499,13 @@ def main():
     - Final Transformation Loss: {trans_loss_list[-1] if trans_loss_list else 0:.6f}
     - Final Total Loss: {total_loss_list[-1] if total_loss_list else 0:.6f}
 
+    Timing:
+    - Training time: {training_time:.2f} s ({training_time / 60.0:.2f} min)
+    - Completed iterations: {completed_iters}
+    - Time per iteration: {time_per_iteration:.4f} s
+    - Final evaluation time: {evaluation_time:.2f} s
+    - Total runtime: {total_runtime:.2f} s ({total_runtime / 60.0:.2f} min)
+
     Training Metrics History:
     """
 
@@ -2206,6 +2536,7 @@ def main():
         "dataset": args.dataset,
         "sample_id": str(args.sample_id),
         "run_name": args.run_name,
+        "command": shlex.join(sys.argv),
         "downsampling_factor": args.df,
         "model": args.model,
         "input_projection": args.input_projection,
@@ -2234,17 +2565,56 @@ def main():
             "final_recon_loss": recon_loss_list[-1] if recon_loss_list else 0,
             "final_trans_loss": trans_loss_list[-1] if trans_loss_list else 0,
             "final_total_loss": total_loss_list[-1] if total_loss_list else 0,
+            "completed_iterations": completed_iters,
+            "training_time_seconds": training_time,
+            "time_per_iteration_seconds": time_per_iteration,
+            "evaluation_time_seconds": evaluation_time,
+            "total_runtime_seconds": total_runtime,
+        },
+        "train_crop": {
+            "requested_lr_size": int(getattr(args, "train_crop_lr_size", 0) or 0),
+            "anchor": str(getattr(args, "eval_crop_anchor", "topleft")),
         },
         "eval_crop": {
             "requested_lr_size": int(getattr(args, "eval_crop_lr_size", 0) or 0),
+            "anchor": str(eval_crop_info.get("crop_anchor", getattr(args, "eval_crop_anchor", "topleft"))),
             "applied": bool(eval_crop_info["cropped"]),
             "lr_crop": int(eval_crop_info["lr_crop"]),
             "hr_crop": int(eval_crop_info["hr_crop"]),
+            "mosaic_origin": getattr(train_data, "mosaic_origin", None),
         },
     }
 
+    aux = getattr(model, "last_decoder_aux", {}) or {}
+    if "attn_mean" in aux:
+        metrics_dict["attention"] = {
+            "mean_by_level": aux["attn_mean"].detach().cpu().tolist(),
+            "entropy_mean": float(aux["attn_entropy_mean"].detach().cpu()),
+            "fine_mass_last3": float(aux["attn_fine_mass_last3"].detach().cpu()),
+        }
+        attn_mean = aux["attn_mean"].detach().cpu().numpy()
+        is_fourier_attn = str(getattr(args, "model", "")) == "fourier_band_attn"
+        token_axis = "Fourier band index" if is_fourier_attn else "HashGrid level index"
+        title_axis = "Fourier band" if is_fourier_attn else "HashGrid level"
+        fig_attn, ax_attn = plt.subplots(figsize=(8, 4))
+        levels = np.arange(len(attn_mean))
+        ax_attn.bar(levels, attn_mean)
+        ax_attn.set_xlabel(token_axis)
+        ax_attn.set_ylabel("Mean attention weight")
+        ax_attn.set_title(f"Mean attention by {title_axis}")
+        fig_attn.tight_layout()
+        fig_attn.savefig(
+            sample_dir / "attention_mean_by_level.png", bbox_inches="tight", pad_inches=0.1, dpi=300
+        )
+        plt.close(fig_attn)
+
     with open(sample_dir / "metrics.json", "w") as f:
         json.dump(metrics_dict, f, indent=2)
+
+    if getattr(args, "log_attention", False) and attention_log:
+        with open(sample_dir / "attention_log.json", "w") as f:
+            json.dump(attention_log, f, indent=2)
+        print(f"Attention log saved to {sample_dir / 'attention_log.json'}")
 
     print(f"Results saved to: {sample_dir}")
     print(f"PSNR results also saved to psnr_results.txt (current directory)")

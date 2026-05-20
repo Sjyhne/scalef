@@ -45,6 +45,7 @@ class INRBase(nn.Module):
         self.color_transforms = nn.ModuleList(
             [nn.ModuleList([ChannelAffine1x1() for _ in range(3)]) for _ in range(num_samples)]
         )
+        self.last_decoder_aux = {}
 
     def get_direct_affine(self, sample_id):
         B = sample_id.shape[0]
@@ -103,7 +104,15 @@ class INRBase(nn.Module):
 
         n_pix = B * H * W
         raw_flat = projected.reshape(n_pix, -1)
-        output_flat = self.decoder(raw_flat)
+
+        if getattr(self.decoder, "requires_coords", False):
+            q_flat = warped_q.reshape(n_pix, -1)
+            output_flat, aux = self.decoder(q_flat, raw_flat)
+            self.last_decoder_aux = aux
+        else:
+            output_flat = self.decoder(raw_flat)
+            self.last_decoder_aux = {}
+
         output = output_flat.reshape(B, H, W, -1)
 
         shifts = [dx_list, dy_list]

@@ -147,6 +147,69 @@ def _center_crop(img: np.ndarray, h: int, w: int) -> np.ndarray:
     return img[y0 : y0 + h, x0 : x0 + w]
 
 
+def mosaic_center_origin(
+    h_min: int,
+    w_min: int,
+    *,
+    reference_patch_size: int,
+    stride: int,
+    patch_row: int | None = None,
+    patch_col: int | None = None,
+) -> tuple[int, int, int, int]:
+    """Top-left (y0, x0) of the center patch on a h_min×w_min mosaic for a reference patch size."""
+    ref = int(reference_patch_size)
+    st = int(stride)
+    if ref <= 0 or st <= 0:
+        raise ValueError("reference_patch_size and stride must be positive")
+    n_rows = max(1, (int(h_min) - ref) // st + 1)
+    n_cols = max(1, (int(w_min) - ref) // st + 1)
+    pr = n_rows // 2 if patch_row is None else max(0, min(int(patch_row), n_rows - 1))
+    pc = n_cols // 2 if patch_col is None else max(0, min(int(patch_col), n_cols - 1))
+    return pr * st, pc * st, int(h_min), int(w_min)
+
+
+def _resolve_mosaic_origin(
+    h_min: int,
+    w_min: int,
+    *,
+    patch: int,
+    stride: int,
+    patch_row: int | None,
+    patch_col: int | None,
+    mosaic_y0: int | None,
+    mosaic_x0: int | None,
+    mosaic_origin_file: str | None,
+    align_mosaic_origin_to_patch_size: int | None,
+) -> tuple[int, int, int, int]:
+    if mosaic_y0 is not None and mosaic_x0 is not None:
+        return int(mosaic_y0), int(mosaic_x0), int(h_min), int(w_min)
+    if mosaic_origin_file:
+        p = Path(mosaic_origin_file)
+        if p.is_file():
+            with p.open("r") as f:
+                meta = json.load(f)
+            return (
+                int(meta["y0"]),
+                int(meta["x0"]),
+                int(meta.get("h_min", h_min)),
+                int(meta.get("w_min", w_min)),
+            )
+    if align_mosaic_origin_to_patch_size is not None and int(align_mosaic_origin_to_patch_size) > 0:
+        return mosaic_center_origin(
+            h_min,
+            w_min,
+            reference_patch_size=int(align_mosaic_origin_to_patch_size),
+            stride=stride,
+            patch_row=patch_row,
+            patch_col=patch_col,
+        )
+    n_rows = max(1, (h_min - patch) // stride + 1)
+    n_cols = max(1, (w_min - patch) // stride + 1)
+    pr = n_rows // 2 if patch_row is None else max(0, min(int(patch_row), n_rows - 1))
+    pc = n_cols // 2 if patch_col is None else max(0, min(int(patch_col), n_cols - 1))
+    return pr * stride, pc * stride, int(h_min), int(w_min)
+
+
 def _read_b432_hwc(path: Path) -> np.ndarray | None:
     """Load B4,B3,B2 as (H,W,C) float32 BOA reflectance ~0–1."""
     if not HAS_RASTERIO:
@@ -208,6 +271,39 @@ def main():
             "Writes sample_XX_raw.npz (reflectance_b432 HWC float32) alongside LR PNGs."
         ),
     )
+    p.add_argument(
+        "--mosaic_y0",
+        type=int,
+        default=None,
+        help="Fixed top-left row on the common mosaic (overrides grid center for this patch size).",
+    )
+    p.add_argument(
+        "--mosaic_x0",
+        type=int,
+        default=None,
+        help="Fixed top-left col on the common mosaic (use with --mosaic_y0).",
+    )
+    p.add_argument(
+        "--mosaic_origin_file",
+        type=str,
+        default=None,
+        help="JSON with y0/x0/h_min/w_min from a prior export (multi-size alignment).",
+    )
+    p.add_argument(
+        "--align_mosaic_origin_to_patch_size",
+        type=int,
+        default=None,
+        help=(
+            "Use the center-patch origin computed for this reference LR size (e.g. 64) for "
+            "all exports so s2_scene_center_v2_{64,128,256} share the same top-left footprint."
+        ),
+    )
+    p.add_argument(
+        "--write_mosaic_origin",
+        type=str,
+        default=None,
+        help="Write mosaic_origin.json (y0, x0, h_min, w_min) to this path after resolving origin.",
+    )
     args = p.parse_args()
 
     tci_folder = Path(args.tci_folder)
@@ -235,18 +331,48 @@ def main():
         raise ValueError("patch_size and stride must be positive")
 
     h_min, w_min = _get_common_hw(paths)
-    n_rows = max(1, (h_min - patch) // stride + 1)
-    n_cols = max(1, (w_min - patch) // stride + 1)
-    pr = n_rows // 2 if args.patch_row is None else max(0, min(int(args.patch_row), n_rows - 1))
-    pc = n_cols // 2 if args.patch_col is None else max(0, min(int(args.patch_col), n_cols - 1))
-    y0 = pr * stride
-    x0 = pc * stride
+    y0, x0, h_min, w_min = _resolve_mosaic_origin(
+        h_min,
+        w_min,
+        patch=patch,
+        stride=stride,
+        patch_row=args.patch_row,
+        patch_col=args.patch_col,
+        mosaic_y0=args.mosaic_y0,
+        mosaic_x0=args.mosaic_x0,
+        mosaic_origin_file=args.mosaic_origin_file,
+        align_mosaic_origin_to_patch_size=args.align_mosaic_origin_to_patch_size,
+    )
     y1 = y0 + patch
     x1 = x0 + patch
+    if y1 > h_min or x1 > w_min:
+        raise RuntimeError(
+            f"Patch {patch}x{patch} at mosaic origin ({y0},{x0}) exceeds common crop {h_min}x{w_min}. "
+            "Use a smaller patch_size or a different origin."
+        )
+
+    mosaic_meta = {
+        "y0": int(y0),
+        "x0": int(x0),
+        "h_min": int(h_min),
+        "w_min": int(w_min),
+        "patch_size": int(patch),
+        "reference_patch_size": int(args.align_mosaic_origin_to_patch_size or patch),
+        "shared_eval_crop_lr_size": int(args.align_mosaic_origin_to_patch_size or patch),
+    }
+    if args.write_mosaic_origin:
+        origin_path = Path(args.write_mosaic_origin)
+        origin_path.parent.mkdir(parents=True, exist_ok=True)
+        with origin_path.open("w") as f:
+            json.dump(mosaic_meta, f, indent=2)
+        print(f"Wrote mosaic origin metadata to {origin_path}")
+
+    with open(out_dir / "mosaic_origin.json", "w") as f:
+        json.dump(mosaic_meta, f, indent=2)
 
     print(f"Found {len(paths)} images")
     print(f"Common crop: {h_min}x{w_min}")
-    print(f"Patch grid: {n_rows}x{n_cols}, using patch ({pr},{pc}) [{y0}:{y1}, {x0}:{x1}]")
+    print(f"Mosaic origin (y0,x0)=({y0},{x0}), exporting {patch}x{patch} -> [{y0}:{y1}, {x0}:{x1}]")
 
     transform_log = {}
     saved = 0

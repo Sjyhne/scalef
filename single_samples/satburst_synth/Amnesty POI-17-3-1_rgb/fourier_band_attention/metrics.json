@@ -1,0 +1,66 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Amnesty POI-17-3-1_rgb",
+  "run_name": "fourier_band_attention",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:7 --sample_id 'Amnesty POI-17-3-1_rgb' --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 3 --network_hidden_dim 64 --weight_decay 0 --model fourier_band_attn --attn_token_dim 32 --fourier_num_bands 8 --log_attention --run_name fourier_band_attention --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "model": "fourier_band_attn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 30.559947967529297,
+    "bilinear": 30.604480743408203,
+    "improvement": -0.04453277587890625
+  },
+  "ssim": {
+    "model": 0.831451416015625,
+    "bilinear": 0.8783602714538574,
+    "improvement": -0.04690885543823242
+  },
+  "lpips": {
+    "model": 0.4534555673599243,
+    "bilinear": 0.319144070148468,
+    "improvement": -0.1343114972114563
+  },
+  "training": {
+    "final_test_loss": 0.0008790865540504456,
+    "final_test_psnr": 30.559682846069336,
+    "final_recon_loss": 0.013279905542731285,
+    "final_trans_loss": 0.012439373503822848,
+    "final_total_loss": 0.013279905542731285,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.385479927062988,
+    "time_per_iteration_seconds": 0.004692739963531494,
+    "evaluation_time_seconds": 3.332892894744873,
+    "total_runtime_seconds": 12.718374013900757
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  },
+  "attention": {
+    "mean_by_level": [
+      0.08063840866088867,
+      0.04418523609638214,
+      0.05345948040485382,
+      0.05637529492378235,
+      0.04622785001993179,
+      0.058474235236644745,
+      0.053997982293367386,
+      0.6066415309906006
+    ],
+    "entropy_mean": 1.2811888456344604,
+    "fine_mass_last3": 0.7191137075424194
+  }
+}

@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: UNHCR-NERs009690_rgb
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 22.90 dB
+    - Bilinear Interpolation: 24.78 dB
+    - PSNR Improvement: -1.89 dB
+
+    SSIM Results:
+    - Model Output: 0.4706
+    - Bilinear Interpolation: 0.6045
+    - SSIM Improvement: -0.1338
+
+    LPIPS Results:
+    - Model Output: 0.5023
+    - Bilinear Interpolation: 0.4129
+    - LPIPS Improvement: -0.0894
+
+    Training Results:
+    - Final Test Loss: 0.005132
+    - Final Test PSNR: 22.90 dB
+    - Final Reconstruction Loss: 0.153463
+    - Final Transformation Loss: 0.009963
+    - Final Total Loss: 0.153463
+
+    Timing:
+    - Training time: 9.83 s (0.16 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0049 s
+    - Final evaluation time: 3.30 s
+    - Total runtime: 13.13 s (0.22 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 20.80 - 22.90 dB
+- Reconstruction loss range: 0.153463 - 0.620002
+- Transformation loss range: 0.008022 - 0.016124
+- Total loss range: 0.153463 - 0.620002
+- Final PSNR: 22.90 dB
+- Final reconstruction loss: 0.153463
+- Final transformation loss: 0.009963
+- Final total loss: 0.153463

@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: UNHCR-NERs009690_rgb
+    Downsampling Factor: 4
+    Model: mlp_tcnn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 33.67 dB
+    - Bilinear Interpolation: 24.78 dB
+    - PSNR Improvement: 8.89 dB
+
+    SSIM Results:
+    - Model Output: 0.9468
+    - Bilinear Interpolation: 0.6045
+    - SSIM Improvement: 0.3423
+
+    LPIPS Results:
+    - Model Output: 0.1280
+    - Bilinear Interpolation: 0.4129
+    - LPIPS Improvement: 0.2849
+
+    Training Results:
+    - Final Test Loss: 0.000429
+    - Final Test PSNR: 33.67 dB
+    - Final Reconstruction Loss: 0.000730
+    - Final Transformation Loss: 0.009892
+    - Final Total Loss: 0.000730
+
+    Timing:
+    - Training time: 7.50 s (0.12 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0037 s
+    - Final evaluation time: 3.31 s
+    - Total runtime: 10.81 s (0.18 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 27.72 - 33.67 dB
+- Reconstruction loss range: 0.000680 - 0.037497
+- Transformation loss range: 0.008104 - 0.016137
+- Total loss range: 0.000680 - 0.037497
+- Final PSNR: 33.67 dB
+- Final reconstruction loss: 0.000730
+- Final transformation loss: 0.009892
+- Final total loss: 0.000730

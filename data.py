@@ -11,6 +11,7 @@ import glob
 import tifffile
 
 from input_projections.coord_utils import make_normalized_grid
+from utils import anchor_crop_hwc
 
 def get_and_standardize_image(image):
     """Per-channel zero mean, unit std. Handles 2D, 3D (HWC/CHW), 4D. Returns (standardized, mean, std)."""
@@ -63,6 +64,8 @@ def get_dataset(args, name='satburst', keep_in_memory=True):
             scale_factor=scale_factor,
             device=getattr(args, "resolved_device", None),
             use_raw_b432=bool(getattr(args, "use_raw_b432", False)),
+            train_crop_lr_size=int(getattr(args, "train_crop_lr_size", 0) or 0),
+            train_crop_anchor=str(getattr(args, "eval_crop_anchor", "topleft")),
         )
     elif name == 'burst_synth':
         return SyntheticBurstVal(data_dir=args.root_burst_synth, 
@@ -88,10 +91,19 @@ class SRData(torch.utils.data.Dataset):
         scale_factor=4,
         device=None,
         use_raw_b432: bool = False,
+        train_crop_lr_size: int = 0,
+        train_crop_anchor: str = "topleft",
     ):
         self.data_dir = Path(data_dir)
         self.keep_in_memory = keep_in_memory
         self.num_samples = num_samples
+        self.train_crop_lr_size = max(0, int(train_crop_lr_size or 0))
+        self.train_crop_anchor = str(train_crop_anchor)
+        self.mosaic_origin = None
+        mosaic_path = self.data_dir / "mosaic_origin.json"
+        if mosaic_path.is_file():
+            with mosaic_path.open("r") as f:
+                self.mosaic_origin = json.load(f)
         _dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(_dev) if not isinstance(_dev, torch.device) else _dev
         self.vmin, self.vmax = 0.0, 1.0
@@ -174,21 +186,17 @@ class SRData(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.samples)
     
-    def get_input_coordinates(self):
-        scale_factor = random.choice(self.scale_factor)
+    def _training_coordinates(self, scale_factor: float):
+        """HR coord grid for training; reuses ``self.hr_coords`` and optional center crop."""
+        coords = self.hr_coords
+        if self.train_crop_lr_size > 0:
+            hr_side = int(self.train_crop_lr_size) * int(scale_factor)
+            coords = anchor_crop_hwc(coords, hr_side, anchor=self.train_crop_anchor)
+        return coords
 
-        lr_h, lr_w = self.lr_image_sizes[0]
-        hr_h = int(lr_h * scale_factor)
-        hr_w = int(lr_w * scale_factor)
-        input_coordinates = make_normalized_grid(
-            hr_h,
-            hr_w,
-            vmin=self.vmin,
-            vmax=self.vmax,
-            pixel_center=True,
-            device=self.device,
-        )
-        return input_coordinates, scale_factor
+    def get_input_coordinates(self):
+        scale_factor = float(random.choice(self.scale_factor))
+        return self._training_coordinates(scale_factor), scale_factor
     
     def __getitem__(self, idx):
         sample_name = self.samples[idx]
@@ -205,6 +213,9 @@ class SRData(torch.utils.data.Dataset):
             # Load transformed image
             img = self._load_sample_image(sample_name)
             img, mean, std = get_and_standardize_image(img)
+
+        if self.train_crop_lr_size > 0:
+            img = anchor_crop_hwc(img, self.train_crop_lr_size, anchor=self.train_crop_anchor)
         
         return {
             'input': input_coordinates,

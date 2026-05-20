@@ -36,7 +36,7 @@ def get_input_projection(
     activation=F.relu,
     hash_n_levels=16,
     hash_n_features_per_level=2,
-    hash_log2_hashmap_size=19,
+    hash_log2_hashmap_size=21,
     hash_base_resolution=16,
     hash_max_resolution=2048,
     hash_encoding_output_dtype="fp32",

@@ -41,7 +41,7 @@ class HashGridTcnn(nn.Module):
         input_dim=2,
         n_levels=16,
         n_features_per_level=2,
-        log2_hashmap_size=19,
+        log2_hashmap_size=21,
         base_resolution=16,
         max_resolution=2048,
         output_dtype="fp32",

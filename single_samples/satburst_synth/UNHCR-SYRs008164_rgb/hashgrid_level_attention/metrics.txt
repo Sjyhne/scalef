@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: UNHCR-SYRs008164_rgb
+    Downsampling Factor: 4
+    Model: hash_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 35.14 dB
+    - Bilinear Interpolation: 30.65 dB
+    - PSNR Improvement: 4.50 dB
+
+    SSIM Results:
+    - Model Output: 0.9102
+    - Bilinear Interpolation: 0.7824
+    - SSIM Improvement: 0.1278
+
+    LPIPS Results:
+    - Model Output: 0.2114
+    - Bilinear Interpolation: 0.3703
+    - LPIPS Improvement: 0.1589
+
+    Training Results:
+    - Final Test Loss: 0.000306
+    - Final Test PSNR: 35.14 dB
+    - Final Reconstruction Loss: 0.000939
+    - Final Transformation Loss: 0.011846
+    - Final Total Loss: 0.000939
+
+    Timing:
+    - Training time: 10.92 s (0.18 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0055 s
+    - Final evaluation time: 3.32 s
+    - Total runtime: 14.23 s (0.24 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 30.30 - 35.14 dB
+- Reconstruction loss range: 0.000939 - 0.039374
+- Transformation loss range: 0.008977 - 0.014983
+- Total loss range: 0.000939 - 0.039374
+- Final PSNR: 35.14 dB
+- Final reconstruction loss: 0.000939
+- Final transformation loss: 0.011846
+- Final total loss: 0.000939

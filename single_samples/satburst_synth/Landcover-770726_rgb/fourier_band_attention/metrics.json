@@ -1,0 +1,66 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-770726_rgb",
+  "run_name": "fourier_band_attention",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:7 --sample_id Landcover-770726_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 3 --network_hidden_dim 64 --weight_decay 0 --model fourier_band_attn --attn_token_dim 32 --fourier_num_bands 8 --log_attention --run_name fourier_band_attention --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "model": "fourier_band_attn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 23.654970169067383,
+    "bilinear": 24.814496994018555,
+    "improvement": -1.1595268249511719
+  },
+  "ssim": {
+    "model": 0.5189829468727112,
+    "bilinear": 0.6665512919425964,
+    "improvement": -0.14756834506988525
+  },
+  "lpips": {
+    "model": 0.5461288690567017,
+    "bilinear": 0.3842477798461914,
+    "improvement": -0.16188108921051025
+  },
+  "training": {
+    "final_test_loss": 0.004346855916082859,
+    "final_test_psnr": 23.618247509002686,
+    "final_recon_loss": 0.0922500342130661,
+    "final_trans_loss": 0.008571065458632371,
+    "final_total_loss": 0.0922500342130661,
+    "completed_iterations": 2000,
+    "training_time_seconds": 9.544185876846313,
+    "time_per_iteration_seconds": 0.004772092938423156,
+    "evaluation_time_seconds": 3.327300548553467,
+    "total_runtime_seconds": 12.871487617492676
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  },
+  "attention": {
+    "mean_by_level": [
+      0.14576584100723267,
+      0.09368303418159485,
+      0.08854512870311737,
+      0.09994380176067352,
+      0.09907957911491394,
+      0.11165785789489746,
+      0.14471934735774994,
+      0.21660542488098145
+    ],
+    "entropy_mean": 1.8673958778381348,
+    "fine_mass_last3": 0.47298261523246765
+  }
+}

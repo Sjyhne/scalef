@@ -1,0 +1,52 @@
+{
+  "dataset": "satburst_synth",
+  "sample_id": "Landcover-743192_rgb",
+  "run_name": "fourier_mlp_baseline",
+  "command": "/workspaces/scalef/optimize.py --dataset satburst_synth --satburst_data_root data --df 4 --lr_shift 1.0 --aug none --num_samples 16 --iters 2000 --batch_size 1 --optimizer adamw --learning_rate 2e-3 --weight_decay 0 --seed 6 --device cuda:7 --sample_id Landcover-743192_rgb --input_projection fourier --projection_dim 256 --fourier_scale 10 --network_depth 3 --network_hidden_dim 64 --weight_decay 0 --model mlp_tcnn --tcnn_mlp_dtype fp16 --run_name fourier_mlp_baseline --eval_crop_lr_size 64 --eval_crop_anchor topleft",
+  "downsampling_factor": 4,
+  "model": "mlp_tcnn",
+  "input_projection": "fourier",
+  "hash_base_resolution": 8,
+  "hash_max_resolution": 48,
+  "iterations": 2000,
+  "learning_rate": 0.002,
+  "psnr": {
+    "model": 35.97635269165039,
+    "bilinear": 32.57484436035156,
+    "improvement": 3.401508331298828
+  },
+  "ssim": {
+    "model": 0.8986575603485107,
+    "bilinear": 0.8256102204322815,
+    "improvement": 0.07304733991622925
+  },
+  "lpips": {
+    "model": 0.20647716522216797,
+    "bilinear": 0.33404815196990967,
+    "improvement": 0.1275709867477417
+  },
+  "training": {
+    "final_test_loss": 0.0002525598101783544,
+    "final_test_psnr": 35.97635746002197,
+    "final_recon_loss": 0.002468769671395421,
+    "final_trans_loss": 0.01242902052123199,
+    "final_total_loss": 0.002468769671395421,
+    "completed_iterations": 2000,
+    "training_time_seconds": 7.713886499404907,
+    "time_per_iteration_seconds": 0.0038569432497024534,
+    "evaluation_time_seconds": 3.31357479095459,
+    "total_runtime_seconds": 11.027464151382446
+  },
+  "train_crop": {
+    "requested_lr_size": 0,
+    "anchor": "topleft"
+  },
+  "eval_crop": {
+    "requested_lr_size": 64,
+    "anchor": "topleft",
+    "applied": false,
+    "lr_crop": 64,
+    "hr_crop": 256,
+    "mosaic_origin": null
+  }
+}

@@ -207,7 +207,14 @@ tci_super_resolved/
 
 # Result directories
 *_results/
+# Legacy *_synth* output dirs elsewhere in the tree (keep exam artifacts under single_samples/)
 *_synth*/
+!single_samples/
+!single_samples/satburst_synth/
+!single_samples/satburst_synth/**
+!single_samples/satburst_real/
+!single_samples/satburst_real/**
+single_samples/**/*.png
 df4*
 sr_outputs_df4/
 all_fourier_results/

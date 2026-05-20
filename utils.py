@@ -168,25 +168,41 @@ def get_valid_mask(input: torch.Tensor, reference: torch.Tensor) -> torch.Tensor
 
 def center_crop_bchw(tensor: torch.Tensor, target_hw: int) -> torch.Tensor:
     """Center-crop a [..., H, W] tensor to (target_hw, target_hw). No-op if H,W <= target."""
+    return anchor_crop_bchw(tensor, target_hw, anchor="center")
+
+
+def center_crop_hwc(arr, target_hw: int):
+    """Center-crop an HWC numpy array / tensor to (target_hw, target_hw). No-op if H,W <= target."""
+    return anchor_crop_hwc(arr, target_hw, anchor="center")
+
+
+def anchor_crop_bchw(tensor: torch.Tensor, target_hw: int, *, anchor: str = "topleft") -> torch.Tensor:
+    """Crop [..., H, W] to (target_hw, target_hw). ``topleft`` keeps [:target,:target]; ``center`` center-crops."""
     h, w = int(tensor.shape[-2]), int(tensor.shape[-1])
     th = min(int(target_hw), h)
     tw = min(int(target_hw), w)
     if th == h and tw == w:
         return tensor
-    y0 = (h - th) // 2
-    x0 = (w - tw) // 2
+    if str(anchor).lower() in ("topleft", "top_left", "tl", "origin"):
+        y0, x0 = 0, 0
+    else:
+        y0 = (h - th) // 2
+        x0 = (w - tw) // 2
     return tensor[..., y0 : y0 + th, x0 : x0 + tw]
 
 
-def center_crop_hwc(arr, target_hw: int):
-    """Center-crop an HWC numpy array / tensor to (target_hw, target_hw). No-op if H,W <= target."""
+def anchor_crop_hwc(arr, target_hw: int, *, anchor: str = "topleft"):
+    """Crop HWC array/tensor to (target_hw, target_hw). See ``anchor_crop_bchw``."""
     h, w = int(arr.shape[0]), int(arr.shape[1])
     th = min(int(target_hw), h)
     tw = min(int(target_hw), w)
     if th == h and tw == w:
         return arr
-    y0 = (h - th) // 2
-    x0 = (w - tw) // 2
+    if str(anchor).lower() in ("topleft", "top_left", "tl", "origin"):
+        y0, x0 = 0, 0
+    else:
+        y0 = (h - th) // 2
+        x0 = (w - tw) // 2
     return arr[y0 : y0 + th, x0 : x0 + tw]
 
 
@@ -199,12 +215,16 @@ def apply_eval_center_crop(
     lr_bilinear_hwc=None,
     crop_lr_size: int,
     df: int,
+    crop_anchor: str = "topleft",
 ):
-    """Center-crop SR / GT / bilinear / LR to a common eval region anchored on the smallest LR.
+    """Crop SR / GT / bilinear / LR to a common eval window for cross-resolution scenes.
 
-    SR / GT / bilinear are cropped to ``crop_lr_size * df`` on each side; the LR image is
-    cropped to ``crop_lr_size``. This lets evaluations across scenes with different LR sizes
-    (e.g. 64/128/256/512) compare the same physical area on the ground.
+    SR / GT / bilinear are cropped to ``crop_lr_size * df``; LR to ``crop_lr_size``.
+
+  ``crop_anchor='topleft'`` (default): take the top-left window. For nested exports where
+    larger patches share the same origin as ``*_64`` (e.g. ``s2_scene_center_v2_{64,128,256}``),
+    this aligns the same geographic footprint. ``crop_anchor='center'`` center-crops each patch
+    independently (different ground area on larger patches).
 
     Returns a dict with the cropped tensors plus the effective ``hr_crop`` / ``lr_crop``
     sizes used. If ``crop_lr_size`` is non-positive, the inputs are returned unchanged.
@@ -218,18 +238,19 @@ def apply_eval_center_crop(
         "hr_crop": int(min(pred_bchw.shape[-2], pred_bchw.shape[-1])),
         "lr_crop": int(min(lr_hwc.shape[0], lr_hwc.shape[1])) if lr_hwc is not None else 0,
         "cropped": False,
+        "crop_anchor": str(crop_anchor),
     }
     if int(crop_lr_size) <= 0 or int(df) <= 0:
         return out
 
     hr_target = int(crop_lr_size) * int(df)
-    out["pred_bchw"] = center_crop_bchw(pred_bchw, hr_target)
-    out["bilinear_bchw"] = center_crop_bchw(bilinear_bchw, hr_target)
-    out["gt_bchw"] = center_crop_bchw(gt_bchw, hr_target)
+    out["pred_bchw"] = anchor_crop_bchw(pred_bchw, hr_target, anchor=crop_anchor)
+    out["bilinear_bchw"] = anchor_crop_bchw(bilinear_bchw, hr_target, anchor=crop_anchor)
+    out["gt_bchw"] = anchor_crop_bchw(gt_bchw, hr_target, anchor=crop_anchor)
     if lr_hwc is not None:
-        out["lr_hwc"] = center_crop_hwc(lr_hwc, int(crop_lr_size))
+        out["lr_hwc"] = anchor_crop_hwc(lr_hwc, int(crop_lr_size), anchor=crop_anchor)
     if lr_bilinear_hwc is not None:
-        out["lr_bilinear_hwc"] = center_crop_hwc(lr_bilinear_hwc, hr_target)
+        out["lr_bilinear_hwc"] = anchor_crop_hwc(lr_bilinear_hwc, hr_target, anchor=crop_anchor)
     out["hr_crop"] = int(min(out["pred_bchw"].shape[-2], out["pred_bchw"].shape[-1]))
     out["lr_crop"] = (
         int(min(out["lr_hwc"].shape[0], out["lr_hwc"].shape[1]))

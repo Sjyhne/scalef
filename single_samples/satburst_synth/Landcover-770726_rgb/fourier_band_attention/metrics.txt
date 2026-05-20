@@ -1,0 +1,49 @@
+Super-Resolution Results
+    =======================
+
+    Dataset: satburst_synth
+    Sample ID: Landcover-770726_rgb
+    Downsampling Factor: 4
+    Model: fourier_band_attn
+    Iterations: 2000
+    Eval Center Crop: disabled
+
+    PSNR Results:
+    - Model Output: 23.65 dB
+    - Bilinear Interpolation: 24.81 dB
+    - PSNR Improvement: -1.16 dB
+
+    SSIM Results:
+    - Model Output: 0.5190
+    - Bilinear Interpolation: 0.6666
+    - SSIM Improvement: -0.1476
+
+    LPIPS Results:
+    - Model Output: 0.5461
+    - Bilinear Interpolation: 0.3842
+    - LPIPS Improvement: -0.1619
+
+    Training Results:
+    - Final Test Loss: 0.004347
+    - Final Test PSNR: 23.62 dB
+    - Final Reconstruction Loss: 0.092250
+    - Final Transformation Loss: 0.008571
+    - Final Total Loss: 0.092250
+
+    Timing:
+    - Training time: 9.54 s (0.16 min)
+    - Completed iterations: 2000
+    - Time per iteration: 0.0048 s
+    - Final evaluation time: 3.33 s
+    - Total runtime: 12.87 s (0.21 min)
+
+    Training Metrics History:
+    - Number of evaluation points: 20
+- PSNR range: 19.96 - 23.62 dB
+- Reconstruction loss range: 0.088004 - 0.603437
+- Transformation loss range: 0.008351 - 0.015479
+- Total loss range: 0.088004 - 0.603437
+- Final PSNR: 23.62 dB
+- Final reconstruction loss: 0.092250
+- Final transformation loss: 0.008571
+- Final total loss: 0.092250

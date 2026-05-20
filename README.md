@@ -8,6 +8,14 @@ This repository contains the core code migrated from SuperF, focused on what is 
 - Model and projection modules: `models/`, `input_projections/`
 - Data preparation helpers: `create_data_from_single_image.py`
 
+## Attention experiment suite (exam ablation)
+
+Fair comparison of Fourier vs HashGrid baselines and decoder-side attention (methods A–D). See [`docs/ATTENTION_EXPERIMENTS.md`](docs/ATTENTION_EXPERIMENTS.md) for hyperparameters, reproduction commands, and saved metrics under `single_samples/`.
+
+```bash
+SUITE=attention_full DEVICE=cuda:0 ./scripts/run_attention_experiment_suite.sh
+```
+
 ## Quick Start
 
 ```bash
@@ -59,7 +67,7 @@ python optimize.py \
   --input_projection hashgrid \
   --hash_n_levels 16 \
   --hash_n_features_per_level 2 \
-  --hash_log2_hashmap_size 19 \
+  --hash_log2_hashmap_size 21 \
   --hash_base_resolution 16 \
   --hash_max_resolution 2048 \
   --hash_encoding_dtype fp32 \
@@ -87,9 +95,9 @@ python optimize.py \
   --iters 2000 \
   --device cuda:0 \
   --input_projection hashgrid \
-  --hash_n_levels 12 \
+  --hash_n_levels 16 \
   --hash_n_features_per_level 2 \
-  --hash_log2_hashmap_size 16 \
+  --hash_log2_hashmap_size 21 \
   --hash_base_resolution 8 \
   --hash_max_resolution 256 \
   --hash_encoding_dtype fp32 \
