@@ -30,6 +30,74 @@ import lpips
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
 
 
+def satburst_scene_dir(args) -> str:
+    root = getattr(args, "satburst_data_root", None) or "data"
+    root = str(root).rstrip("/")
+    lr_size = int(getattr(args, "lr_size", 0) or 0)
+    if lr_size > 0:
+        sub = f"scale_{int(args.df)}_lr{lr_size}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
+    else:
+        sub = f"scale_{int(args.df)}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
+    return f"{root}/{args.sample_id}/{sub}"
+
+
+def resolve_hash_resolutions(args) -> tuple[int, int]:
+    lr = int(getattr(args, "lr_size", 0) or 0)
+    explicit_max = int(getattr(args, "hash_max_resolution", 0) or 0)
+    explicit_base = int(getattr(args, "hash_base_resolution", 0) or 0)
+    hash_max = explicit_max if explicit_max > 0 else (lr if lr > 0 else 48)
+    hash_base = explicit_base if explicit_base > 0 else max(8, hash_max // 4)
+    if hash_base >= hash_max:
+        hash_base = max(8, hash_max // 4)
+    return hash_base, hash_max
+
+
+def build_projection_and_decoder(args, device, *, output_dim: int = 3):
+    hash_base, hash_max = resolve_hash_resolutions(args)
+    input_projection = get_input_projection(
+        args.input_projection,
+        2,
+        args.projection_dim,
+        device,
+        args.fourier_scale,
+        hash_n_levels=int(getattr(args, "hash_n_levels", 16)),
+        hash_n_features_per_level=int(getattr(args, "hash_n_features_per_level", 2)),
+        hash_log2_hashmap_size=int(getattr(args, "hash_log2_hashmap_size", 19)),
+        hash_base_resolution=hash_base,
+        hash_max_resolution=hash_max,
+    )
+    if input_projection is None:
+        decoder_in = 2
+    elif hasattr(input_projection, "projection_output_dim"):
+        decoder_in = int(input_projection.projection_output_dim)
+    else:
+        decoder_in = int(args.projection_dim)
+    decoder = get_decoder(
+        args.model,
+        args.network_depth,
+        decoder_in,
+        args.network_hidden_dim,
+        output_dim=output_dim,
+        tcnn_mlp_dtype=str(getattr(args, "tcnn_mlp_dtype", "fp16")),
+    )
+    if args.model == "mlp_tcnn":
+        decoder = decoder.to(device)
+    return input_projection, decoder
+
+
+def build_model(args, input_projection, decoder, device):
+    from models.inr import get_inr
+
+    model = get_inr(
+        input_projection,
+        decoder,
+        args.num_samples,
+        use_gnll=bool(getattr(args, "use_gnll", False)),
+    ).to(device)
+    model.lr_degradation = str(getattr(args, "lr_degradation", "area"))
+    return model
+
+
 def get_eval_autocast_dtype(eval_mixed_precision, device):
     """Return autocast dtype for evaluation, or None for float32. Only applies on CUDA."""
     if device.type != "cuda" or not eval_mixed_precision or eval_mixed_precision == "none":
@@ -1132,13 +1200,13 @@ def main():
     parser.add_argument("--aug", type=str, default="none", choices=['none', 'light', 'medium', 'heavy'])
     
     # Model parameters
-    parser.add_argument("--model", type=str, default="mlp", 
-                       choices=["mlp", "nir"])
+    parser.add_argument("--model", type=str, default="mlp",
+                       choices=["mlp", "mlp_tcnn", "nir"])
     parser.add_argument("--network_depth", type=int, default=4)
     parser.add_argument("--network_hidden_dim", type=int, default=256)
     parser.add_argument("--projection_dim", type=int, default=256)
-    parser.add_argument("--input_projection", type=str, default="fourier_10", 
-                       choices=["fourier_10", "fourier_5", "fourier_20", "fourier_40", "fourier", "none", "None"])
+    parser.add_argument("--input_projection", type=str, default="fourier_10",
+                       help="fourier, fourier_N, hashgrid, hashgrid_tcnn, none")
     parser.add_argument("--fourier_scale", type=float, default=10.0)
     parser.add_argument("--use_gnll", action="store_true")
     parser.add_argument("--use_separate_ud", action="store_true", help="Use separate UD parameters for each sample (default: False)")
@@ -1150,6 +1218,28 @@ def main():
     parser.add_argument("--no_direct_param_T", action="store_true", help="Disable direct parameter T (default: use_direct_param_T=True)")
     parser.add_argument("--use_color_shift", action="store_true", help="Use color shift (default: use_color_shift=False)")
     
+    parser.add_argument("--satburst_data_root", type=str, default=None)
+    parser.add_argument("--lr_size", type=int, default=0)
+    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument(
+        "--lr_degradation",
+        type=str,
+        default="area",
+        choices=["area", "s2_psf", "s2_psf_m"],
+        help="HR→LR operator during training (match synth_export_meta degradation).",
+    )
+    parser.add_argument("--hash_max_resolution", type=int, default=0)
+    parser.add_argument("--hash_base_resolution", type=int, default=0)
+    parser.add_argument("--hash_n_levels", type=int, default=16)
+    parser.add_argument("--hash_n_features_per_level", type=int, default=2)
+    parser.add_argument("--hash_log2_hashmap_size", type=int, default=19)
+    parser.add_argument("--tcnn_mlp_dtype", type=str, default="fp16", choices=["fp16", "fp32"])
+    parser.add_argument("--supervision_channels", type=int, default=3)
+    parser.add_argument("--eval_every", type=int, default=100)
+    parser.add_argument("--no_multiband_diagnostics", action="store_true")
+    parser.add_argument("--skip_eval", action="store_true")
+    parser.add_argument("--skip_artifacts", action="store_true")
+
     # Training parameters
     parser.add_argument("--seed", type=int, default=6)
     parser.add_argument("--iters", type=int, default=2000)
@@ -1210,6 +1300,8 @@ def main():
         args.input_projection = "fourier"
     elif input_projection_name == "fourier":
         args.input_projection = "fourier"
+    elif input_projection_name in {"hashgrid", "hash", "ngp_hash", "hashgrid_tcnn", "hash_tcnn"}:
+        args.input_projection = input_projection_name
     elif input_projection_name == "none":
         args.input_projection = "none"
     else:
@@ -1217,7 +1309,9 @@ def main():
 
     # Setup dataset
     if args.dataset == "satburst_synth":
-        args.root_satburst_synth = f"data/{args.sample_id}/scale_{args.df}_shift_{args.lr_shift:.1f}px_aug_{args.aug}"
+        args.root_satburst_synth = satburst_scene_dir(args)
+        print(f"Scene: {args.root_satburst_synth}", flush=True)
+        print(f"LR degradation: {args.lr_degradation}", flush=True)
     elif args.dataset == "burst_synth":
         args.root_burst_synth = "SyntheticBurstVal"
         # Convert sample_id to integer for burst_synth dataset
@@ -1284,15 +1378,8 @@ def main():
 
         output_dim = 3 + args.num_samples * 3 if args.use_gnll and not args.use_separate_ud else 3
         # Setup model components (needed for all samples)
-        input_projection = get_input_projection(args.input_projection, 2, args.projection_dim, device, args.fourier_scale)
-        decoder_input_dim = 2 if args.input_projection == "none" else args.projection_dim
-        decoder = get_decoder(
-            args.model,
-            args.network_depth,
-            decoder_input_dim,
-            args.network_hidden_dim,
-            output_dim=output_dim,
-        )
+        input_projection, decoder = build_projection_and_decoder(args, device, output_dim=output_dim)
+        decoder_input_dim = decoder.input_dim if hasattr(decoder, "input_dim") else args.projection_dim
         
         # Run optimization for each sample
         all_results = []
@@ -1303,16 +1390,14 @@ def main():
             
             # Create a FRESH model for each sample (this is the key fix!)
             print(f"🔄 Creating fresh model for sample {sample_id} (sample {sample_idx + 1}/{len(sample_ids)})")
-            model = INR(input_projection, decoder, args.num_samples, use_gnll=args.use_gnll, 
-                       use_base_frame=not args.no_base_frame, use_direct_param_T=not args.no_direct_param_T, 
-                       use_color_shift=args.use_color_shift, use_separate_ud=args.use_separate_ud).to(device)
+            model = build_model(args, input_projection, decoder, device)
             print(f"✅ Fresh model created and initialized")
             
             # Set the sample_id for this iteration
             args.sample_id = sample_id
             # Recompute dataset-specific roots per sample when needed
             if args.dataset == "satburst_synth":
-                args.root_satburst_synth = f"data/{args.sample_id}/scale_{args.df}_shift_{args.lr_shift:.1f}px_aug_{args.aug}"
+                args.root_satburst_synth = satburst_scene_dir(args)
             
             # Get dataset for this specific sample
             # Treat worldstrat_sweet/bitter like worldstrat_test for loader name
@@ -1348,12 +1433,8 @@ def main():
     train_dataloader = DataLoader(train_data, batch_size=1, shuffle=False)
 
     # Setup model
-    input_projection = get_input_projection(args.input_projection, 2, args.projection_dim, device, args.fourier_scale)
-    decoder_input_dim = 2 if args.input_projection == "none" else args.projection_dim
-    decoder = get_decoder(args.model, args.network_depth, decoder_input_dim, args.network_hidden_dim)
-    model = INR(input_projection, decoder, args.num_samples, use_gnll=args.use_gnll, 
-               use_base_frame=not args.no_base_frame, use_direct_param_T=not args.no_direct_param_T,
-               use_color_shift=args.use_color_shift, use_separate_ud=args.use_separate_ud).to(device)
+    input_projection, decoder = build_projection_and_decoder(args, device)
+    model = build_model(args, input_projection, decoder, device)
     # model = NIR(input_projection, decoder, args.num_samples, use_gnll=args.use_gnll).to(device)
 
     # Setup optimizer
@@ -1365,6 +1446,8 @@ def main():
     # Training loop
     iteration = 0
     progress_bar = tqdm(total=args.iters, desc="Training")
+    training_start_time = time.time()
+    eval_every = int(getattr(args, "eval_every", 100) or 0)
     
     # Lists to store PSNR and losses for plotting
     psnr_list = []
@@ -1410,7 +1493,7 @@ def main():
             progress_bar.set_postfix(postfix_dict)
             
             # Periodic evaluation
-            if iteration % 100 == 0:
+            if eval_every > 0 and not getattr(args, "skip_eval", False) and iteration % eval_every == 0:
                 eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
                 test_loss, test_psnr = test_one_epoch(model, train_data, device, eval_autocast_dtype)
                 print(f"\nIter {iteration}: Train Loss: {train_losses['total_loss']:.6f}, "
@@ -1431,6 +1514,7 @@ def main():
                 total_loss_list.append(train_losses['total_loss'])
 
     progress_bar.close()
+    training_time = time.time() - training_start_time
     
     # Final evaluation and save output
     model.eval()
@@ -1539,6 +1623,8 @@ def main():
         output_base_dir = Path("single_samples")
         dataset_dir = output_base_dir / args.dataset
         sample_dir = dataset_dir / str(args.sample_id)
+        if getattr(args, "run_name", None):
+            sample_dir = sample_dir / str(args.run_name)
         sample_dir.mkdir(parents=True, exist_ok=True)
         
         # Save comparison figure with LR, bilinear upsampling (aligned), model output (aligned), and ground truth
@@ -1618,6 +1704,8 @@ def main():
     output_base_dir = Path("single_samples")
     dataset_dir = output_base_dir / args.dataset
     sample_dir = dataset_dir / str(args.sample_id)
+    if getattr(args, "run_name", None):
+        sample_dir = sample_dir / str(args.run_name)
     sample_dir.mkdir(parents=True, exist_ok=True)
     
     # Save PSNR results to a text file in the structured directory
@@ -1679,10 +1767,17 @@ def main():
     metrics_dict = {
         'dataset': args.dataset,
         'sample_id': str(args.sample_id),
+        'run_name': getattr(args, "run_name", None),
+        'lr_degradation': str(getattr(args, "lr_degradation", "area")),
         'downsampling_factor': args.df,
         'model': args.model,
         'iterations': args.iters,
         'learning_rate': args.learning_rate,
+        'model_psnr': model_psnr,
+        'bilinear_psnr': bilinear_psnr,
+        'final_test_psnr': final_psnr,
+        'completed_iters': iteration,
+        'training_time_seconds': training_time,
         'psnr': {
             'model': model_psnr,
             'bilinear': bilinear_psnr,

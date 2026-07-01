@@ -43,6 +43,8 @@ class INRBase(nn.Module):
         self.log_fs.requires_grad = True
 
         self.num_samples = num_samples
+        self.lr_degradation = "area"
+        self.degrade_df = 4
         self.time_vectors = torch.FloatTensor(np.linspace(0, 1, self.num_samples))
 
         self.use_gnll = False
@@ -132,11 +134,12 @@ class INRBase(nn.Module):
                 scale_factor = scale_factor.unique().item()
             else:
                 raise ValueError("Not implemented: multiple scale factors in the same batch")
-            output = F.interpolate(
-                output.permute(0, 3, 1, 2),
-                scale_factor=scale_factor,
-                mode="area",
-            ).permute(0, 2, 3, 1)
+            df = max(1, int(round(1.0 / float(scale_factor))))
+            x = output.permute(0, 3, 1, 2).contiguous()
+            from models.s2_psf_forward import degrade_hr_bchw
+
+            x = degrade_hr_bchw(x, df, getattr(self, "lr_degradation", "area"))
+            output = x.permute(0, 2, 3, 1).contiguous()
 
         return output, shifts
 
