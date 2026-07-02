@@ -35,7 +35,10 @@ from download_s2_earth_search import (
     _time_to_filename,
     _utm_epsg_from_lon_lat,
     best_valid_window,
+    normalize_mgrs_tile,
+    reference_item_for_mgrs_tile,
     reference_item_for_tile,
+    search_items_for_mgrs_tile,
     stack_extent_metadata,
     stack_items,
 )
@@ -51,10 +54,7 @@ SCL_INVALID: frozenset[int] = frozenset({0, 1, 3, 8, 9, 10, 11})
 
 
 def _normalize_mgrs_tile(tile: str) -> str:
-    text = str(tile).strip().upper().replace("MGRS-", "")
-    if not text:
-        raise ValueError("MGRS tile must not be empty")
-    return text
+    return normalize_mgrs_tile(tile)
 
 
 def search_tile_items(
@@ -65,27 +65,13 @@ def search_tile_items(
     bbox: tuple[float, float, float, float] | None = None,
     max_items: int | None = None,
 ):
-    import pystac_client
-
-    tile = _normalize_mgrs_tile(mgrs_tile)
-    catalog = pystac_client.Client.open(EARTH_SEARCH_STAC_URL)
-    kwargs: dict = {
-        "collections": [DEFAULT_COLLECTION],
-        "datetime": datetime_range,
-        "query": {"eo:cloud_cover": {"lt": float(max_cloud_cover)}},
-        "max_items": 500,
-    }
-    if bbox is not None:
-        kwargs["bbox"] = list(bbox)
-    items = [
-        it
-        for it in catalog.search(**kwargs).items()
-        if (_item_mgrs_tile(it) or "").upper().replace("MGRS-", "") == tile
-    ]
-    items.sort(key=lambda it: it.properties.get("datetime", ""))
-    if max_items is not None and max_items > 0:
-        items = items[: int(max_items)]
-    return items
+    return search_items_for_mgrs_tile(
+        mgrs_tile,
+        datetime_range=datetime_range,
+        max_cloud_cover=float(max_cloud_cover),
+        bbox=bbox,
+        max_items=max_items,
+    )
 
 
 def _day_number(dt_text: str) -> float:
@@ -206,6 +192,8 @@ def export_scene(
     preview_hi: np.ndarray | None,
     band_names: tuple[str, ...],
     preview_downsample: int,
+    preview_gamma: float = 1.0,
+    preview_stretch: str = "scalar",
 ) -> dict:
     dt = str(item.properties.get("datetime", ""))
     stem = f"{_time_to_filename(dt)}_{item.id}"
@@ -228,6 +216,8 @@ def export_scene(
         downsample=preview_downsample,
         lo=preview_lo,
         hi=preview_hi,
+        gamma=preview_gamma,
+        stretch=preview_stretch,
     )
 
     valid_pct = 100.0 * float(np.mean(valid_hw))
@@ -251,17 +241,29 @@ def run_download(args: argparse.Namespace) -> Path:
     reflectance_assets = preset.earth_search_assets()
     datetime_range = _iso_range(args.start_date, args.end_date)
 
-    ref_item, tile_bbox, detected_tile = reference_item_for_tile(
-        args.center_lon,
-        args.center_lat,
-        datetime_range=datetime_range,
-        collection=DEFAULT_COLLECTION,
-    )
-    mgrs_tile = _normalize_mgrs_tile(args.mgrs_tile or detected_tile or _item_mgrs_tile(ref_item) or "")
+    if args.mgrs_tile:
+        mgrs_tile = _normalize_mgrs_tile(args.mgrs_tile)
+        ref_item, tile_bbox, _ = reference_item_for_mgrs_tile(
+            mgrs_tile,
+            datetime_range=datetime_range,
+            max_cloud_cover=float(args.max_cloud_cover),
+        )
+    else:
+        ref_item, tile_bbox, detected_tile = reference_item_for_tile(
+            args.center_lon,
+            args.center_lat,
+            datetime_range=datetime_range,
+            collection=DEFAULT_COLLECTION,
+        )
+        mgrs_tile = _normalize_mgrs_tile(detected_tile or _item_mgrs_tile(ref_item) or "")
     if not mgrs_tile:
         raise RuntimeError("Could not determine MGRS tile; pass --mgrs-tile")
 
     crop_size = int(args.auto_crop_size)
+    max_aoi_nodata_pct = args.max_aoi_nodata_pct
+    if max_aoi_nodata_pct is None and crop_size > 0:
+        max_aoi_nodata_pct = 0.1
+
     if crop_size > 0:
         half_km = (crop_size * float(args.resolution_m)) / 1000.0 * float(args.bbox_margin)
         stack_bbox = _bbox_from_center(args.center_lon, args.center_lat, half_km)
@@ -318,12 +320,12 @@ def run_download(args: argparse.Namespace) -> Path:
         nodata_thw = _crop_hw(nodata_thw, row0, col0, size)
         cloud_thw = _crop_hw(cloud_thw, row0, col0, size)
 
-    if args.max_aoi_nodata_pct is not None:
+    if max_aoi_nodata_pct is not None:
         scene_nodata = [100.0 * float(np.mean(nodata_thw[t])) for t in range(nodata_thw.shape[0])]
-        keep = [t for t, frac in enumerate(scene_nodata) if frac <= float(args.max_aoi_nodata_pct)]
+        keep = [t for t, frac in enumerate(scene_nodata) if frac <= float(max_aoi_nodata_pct)]
         if not keep:
             raise RuntimeError(
-                f"No scenes with AOI nodata <= {args.max_aoi_nodata_pct:.3f}% "
+                f"No scenes with AOI nodata <= {max_aoi_nodata_pct:.3f}% "
                 f"(best was {min(scene_nodata):.3f}%)."
             )
         items = [items[t] for t in keep]
@@ -333,6 +335,12 @@ def run_download(args: argparse.Namespace) -> Path:
         cloud_thw = cloud_thw[keep]
         computed = computed.isel(time=keep)
         print(f"  nodata filter kept {len(items)} / {len(scene_nodata)} scenes")
+    elif crop_size == 0:
+        scene_nodata = [100.0 * float(np.mean(nodata_thw[t])) for t in range(nodata_thw.shape[0])]
+        print(
+            f"  full tile: no scene nodata filter (AOI nodata "
+            f"{min(scene_nodata):.2f}–{max(scene_nodata):.2f}% across {len(scene_nodata)} scenes)"
+        )
 
     filled, provenance = fill_nodata_temporal(
         refl_thwc,
@@ -355,7 +363,9 @@ def run_download(args: argparse.Namespace) -> Path:
     preview_lo, preview_hi = scene_stretch_limits_from_arrays(
         rgb_list,
         valid_list,
-        downsample=int(args.preview_downsample),
+        p_low=1.0,
+        p_high=99.0,
+        stretch="scalar",
     )
 
     scene_entries: list[dict] = []
@@ -373,6 +383,8 @@ def run_download(args: argparse.Namespace) -> Path:
             preview_hi=preview_hi,
             band_names=preset.band_names,
             preview_downsample=int(args.preview_downsample),
+            preview_gamma=float(args.preview_gamma),
+            preview_stretch=str(args.preview_stretch),
         )
         entry["aoi_nodata_pct"] = float(100.0 * np.mean(nodata_thw[t]))
         entry["aoi_cloud_pct"] = float(100.0 * np.mean(cloud_thw[t]))
@@ -395,7 +407,7 @@ def run_download(args: argparse.Namespace) -> Path:
         "band_names": list(preset.band_names),
         "assets": list(reflectance_assets) + ["scl"],
         "max_cloud_cover": float(args.max_cloud_cover),
-        "max_aoi_nodata_pct": args.max_aoi_nodata_pct,
+        "max_aoi_nodata_pct": max_aoi_nodata_pct,
         "auto_valid_crop": crop_meta,
         "num_scenes": len(scene_entries),
         "georef": georef,
@@ -410,10 +422,11 @@ def run_download(args: argparse.Namespace) -> Path:
         },
         "preview": {
             "downsample": int(args.preview_downsample),
-            "stretch": "scene_per_channel_percentile",
-            "percentile_low": 2.0,
-            "percentile_high": 98.0,
-            "masked": True,
+            "stretch": str(args.preview_stretch),
+            "percentile_low": 1.0,
+            "percentile_high": 99.0,
+            "gamma": float(args.preview_gamma),
+            "masked": False,
         },
         "fill_pixels_per_scene": [
             int(np.sum(provenance[t] >= 0)) for t in range(provenance.shape[0])
@@ -442,13 +455,26 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epsg", type=int, default=None)
     p.add_argument("--resolution-m", type=float, default=10.0)
     p.add_argument("--max-cloud-cover", type=float, default=10.0)
-    p.add_argument("--max-aoi-nodata-pct", type=float, default=0.1)
+    p.add_argument(
+        "--max-aoi-nodata-pct",
+        type=float,
+        default=None,
+        help="Drop scenes above this AOI nodata %%. Default: 0.1 when --auto-crop-size>0; "
+        "disabled for full tile (use per-pixel valid masks instead).",
+    )
     p.add_argument("--max-scenes", type=int, default=None)
     p.add_argument("--auto-crop-size", type=int, default=0)
     p.add_argument("--coverage-gate-pct", type=float, default=20.0)
     p.add_argument("--bbox-margin", type=float, default=1.25)
     p.add_argument("--fill-max-days", type=float, default=21.0)
     p.add_argument("--preview-downsample", type=int, default=DEFAULT_PREVIEW_DOWNSAMPLE)
+    p.add_argument("--preview-gamma", type=float, default=1.0)
+    p.add_argument(
+        "--preview-stretch",
+        choices=("scalar", "per_channel"),
+        default="scalar",
+        help="scalar: shared p1–p99 across RGB (default, matches legacy S2 PNGs)",
+    )
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 

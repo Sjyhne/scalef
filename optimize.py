@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import json
 from datetime import datetime
 
-from data import get_dataset
+from data import get_dataset, resolve_dataset_device
 from utils import bilinear_resize_torch, align_output_to_target, get_valid_mask
 from losses import BasicLosses
 from models.utils import get_decoder
@@ -22,12 +22,209 @@ from input_projections.utils import get_input_projection
 from models.inr import INR
 from models.nir import NIR
 from optimizers import build_optimizer
+from eval.spot_metrics import DEFAULT_SPOT_HR_PX, compute_fixed_spot_metrics
+from eval.visualize import (
+    create_spot_summary_visualization,
+    create_sr_sample_grid,
+    save_eval_visualizations,
+)
 
 import time
 
 import os
 import lpips
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
+
+LOG_POSTFIX_INTERVAL = 20
+_GNLL_RECON_CRITERION = nn.GaussianNLLLoss()
+_LPIPS_BY_DEVICE: dict[str, lpips.LPIPS] = {}
+
+
+def _as_device_tensor(x, device: torch.device):
+    if isinstance(x, torch.Tensor):
+        return x if x.device == device else x.to(device, non_blocking=True)
+    if isinstance(x, (int, float)):
+        return torch.tensor(x, device=device)
+    return x
+
+
+def _stack_train_loss_scalars(losses: dict[str, torch.Tensor]) -> dict[str, float]:
+    order = (
+        "recon_loss",
+        "trans_loss",
+        "variance_reg_loss",
+        "variance_smooth_loss",
+        "total_loss",
+    )
+    stacked = torch.stack([losses[k].detach().float() for k in order]).cpu()
+    values = stacked.tolist()
+    return dict(zip(order, values))
+
+
+def _train_postfix_from_scalars(scalars: dict[str, float]) -> dict[str, str]:
+    postfix = {
+        "recon": f"{scalars['recon_loss']:.4f}",
+        "trans": f"{scalars['trans_loss']:.4f}",
+    }
+    if scalars.get("variance_reg_loss", 0.0) > 0.0:
+        postfix["var_reg"] = f"{scalars['variance_reg_loss']:.4f}"
+    if scalars.get("variance_smooth_loss", 0.0) > 0.0:
+        postfix["var_smooth"] = f"{scalars['variance_smooth_loss']:.4f}"
+    return postfix
+
+
+def get_lpips_model(device: torch.device) -> lpips.LPIPS:
+    key = str(device)
+    if key not in _LPIPS_BY_DEVICE:
+        model = lpips.LPIPS(net="vgg").to(device)
+        model.eval()
+        _LPIPS_BY_DEVICE[key] = model
+    return _LPIPS_BY_DEVICE[key]
+
+
+def _lr_rgb_hwc_unstandardized(train_data) -> np.ndarray:
+    """Return the first LR frame as HWC float RGB in [0, 1]."""
+    if hasattr(train_data, "get_lr_sample_hwc"):
+        lr_hwc = train_data.get_lr_sample_hwc(0).cpu().numpy()
+        lr_needs_unstandardize = True
+    else:
+        lr_any = train_data.get_lr_sample(0).cpu().numpy()
+        if lr_any.ndim == 3 and lr_any.shape[0] == 3:
+            lr_hwc = np.transpose(lr_any, (1, 2, 0))
+        elif lr_any.ndim == 3 and lr_any.shape[2] > 3:
+            h, w, c = lr_any.shape
+            if c % 3 == 0:
+                lr_hwc = lr_any.reshape(h, w, c // 3, 3)[:, :, 0, :]
+            else:
+                lr_hwc = lr_any[:, :, :3]
+        else:
+            lr_hwc = lr_any
+        lr_needs_unstandardize = False
+
+    if lr_needs_unstandardize:
+        lr_std = train_data.get_lr_std(0).cpu().numpy()
+        lr_mean = train_data.get_lr_mean(0).cpu().numpy()
+        if lr_std.ndim == 1:
+            lr_std = lr_std.reshape(1, 1, -1)
+        if lr_mean.ndim == 1:
+            lr_mean = lr_mean.reshape(1, 1, -1)
+        lr_hwc = lr_hwc * lr_std + lr_mean
+    return np.clip(lr_hwc, 0.0, 1.0)
+
+
+def _forward_hr_output(model, hr_coords, hr_image, sample_id, device, eval_autocast_dtype=None):
+    if eval_autocast_dtype is not None:
+        with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
+            if model.use_gnll:
+                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+            elif isinstance(model, INR):
+                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+            elif isinstance(model, NIR):
+                output, _ = model(
+                    hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image
+                )
+                output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
+            else:
+                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+    elif model.use_gnll:
+        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+    elif isinstance(model, INR):
+        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+    elif isinstance(model, NIR):
+        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image)
+        output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
+    else:
+        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+    return output
+
+
+def eval_hr_metrics(model, test_loader, device, eval_autocast_dtype=None) -> dict:
+    """Full-frame HR metrics vs GT (and bilinear baseline) for periodic eval."""
+    model.eval()
+    with torch.no_grad():
+        hr_coords = test_loader.get_hr_coordinates().unsqueeze(0).to(device)
+        hr_image = test_loader.get_original_hr().unsqueeze(0).to(device)
+        sample_id = torch.tensor([0]).to(device)
+
+        output = _forward_hr_output(
+            model, hr_coords, hr_image, sample_id, device, eval_autocast_dtype
+        )
+        output = output * test_loader.get_lr_std(0).to(device) + test_loader.get_lr_mean(0).to(device)
+
+        test_loss = F.mse_loss(output, hr_image).item()
+        test_psnr = (-10 * torch.log10(torch.tensor(test_loss))).item()
+
+        pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
+        if pred_tensor.shape[-1] == 3:
+            pred_tensor = pred_tensor.permute(0, 3, 1, 2)
+        gt_tensor = hr_image if hr_image.ndim == 4 else hr_image.unsqueeze(0)
+        if gt_tensor.shape[-1] == 3:
+            gt_tensor = gt_tensor.permute(0, 3, 1, 2)
+
+        hr_h, hr_w = int(gt_tensor.shape[-2]), int(gt_tensor.shape[-1])
+        lr_original = _lr_rgb_hwc_unstandardized(test_loader)
+        lr_bilinear = cv2.resize(lr_original, (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
+        bilinear_tensor = (
+            torch.from_numpy(np.clip(lr_bilinear, 0.0, 1.0))
+            .unsqueeze(0)
+            .permute(0, 3, 1, 2)
+            .to(device)
+        )
+
+        pred_cpu = pred_tensor.detach().cpu()
+        gt_cpu = gt_tensor.detach().cpu()
+        bil_cpu = bilinear_tensor.detach().cpu()
+
+        model_psnr = peak_signal_noise_ratio(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_psnr = peak_signal_noise_ratio(bil_cpu, gt_cpu, data_range=1.0).item()
+        model_ssim = ssim(pred_cpu, gt_cpu, data_range=1.0).item()
+        bilinear_ssim = ssim(bil_cpu, gt_cpu, data_range=1.0).item()
+
+        lpips_fn = get_lpips_model(device)
+        model_lpips = lpips_fn((pred_tensor * 2 - 1), (gt_tensor * 2 - 1)).item()
+        bilinear_lpips = lpips_fn((bilinear_tensor * 2 - 1), (gt_tensor * 2 - 1)).item()
+
+    return {
+        "test_loss": test_loss,
+        "test_psnr": test_psnr,
+        "model_psnr": model_psnr,
+        "bilinear_psnr": bilinear_psnr,
+        "model_ssim": model_ssim,
+        "bilinear_ssim": bilinear_ssim,
+        "model_lpips": model_lpips,
+        "bilinear_lpips": bilinear_lpips,
+    }
+
+
+def _format_periodic_eval_line(iteration: int, scalars: dict, metrics: dict) -> str:
+    return (
+        f"\nIter {iteration}: Train Loss: {scalars['total_loss']:.6f}, "
+        f"Test Loss: {metrics['test_loss']:.6f}, "
+        f"PSNR: {metrics['test_psnr']:.2f} dB (bil {metrics['bilinear_psnr']:.2f}), "
+        f"SSIM: {metrics['model_ssim']:.4f} (bil {metrics['bilinear_ssim']:.4f}), "
+        f"LPIPS: {metrics['model_lpips']:.4f} (bil {metrics['bilinear_lpips']:.4f})"
+    )
+
+
+def _maybe_fixed_spot_metrics(
+    pred_aligned: torch.Tensor,
+    gt_tensor: torch.Tensor,
+    bilinear_aligned: torch.Tensor,
+    device: torch.device,
+    lpips_fn: lpips.LPIPS,
+    args,
+) -> dict:
+    spot_hr_px = int(getattr(args, "eval_spot_hr_px", DEFAULT_SPOT_HR_PX) or 0)
+    if spot_hr_px <= 0:
+        return {}
+    return compute_fixed_spot_metrics(
+        pred_aligned,
+        gt_tensor,
+        bilinear_aligned,
+        spot_hr_px=spot_hr_px,
+        device=device,
+        lpips_fn=lpips_fn,
+    )
 
 
 def satburst_scene_dir(args) -> str:
@@ -65,7 +262,18 @@ def build_projection_and_decoder(args, device, *, output_dim: int = 3):
         hash_log2_hashmap_size=int(getattr(args, "hash_log2_hashmap_size", 19)),
         hash_base_resolution=hash_base,
         hash_max_resolution=hash_max,
+        hash_interpolation=str(getattr(args, "hash_interpolation", "smoothstep")),
+        hash_level_sigma=float(getattr(args, "hash_level_sigma", 0.0) or 0.0),
     )
+    if getattr(input_projection, "level_weights", None) is not None:
+        from input_projections.hashgrid_projection import compute_level_footprint_weights
+
+        res = [int(r) for r in input_projection.resolutions]
+        per_level = compute_level_footprint_weights(res, input_projection.level_sigma)
+        print(
+            f"Hash level footprint weights (sigma={input_projection.level_sigma:g}): "
+            + ", ".join(f"N={r}:{float(v):.3f}" for r, v in zip(res, per_level))
+        )
     if input_projection is None:
         decoder_in = 2
     elif hasattr(input_projection, "projection_output_dim"):
@@ -111,22 +319,28 @@ def get_eval_autocast_dtype(eval_mixed_precision, device):
     return None
 
 
-def train_one_iteration(model, optimizer, train_sample, device, variance_reg=0.0, variance_smooth_reg=0.0):
+def train_one_iteration(
+    model,
+    optimizer,
+    train_sample,
+    device,
+    args,
+    variance_reg=0.0,
+    variance_smooth_reg=0.0,
+):
     model.train()
-    
+
     recon_criterion = BasicLosses.mse_loss
-    trans_criterion = BasicLosses.mae_loss
     use_gnll_loss = model.use_gnll
     if use_gnll_loss:
-        recon_criterion = nn.GaussianNLLLoss()
+        recon_criterion = _GNLL_RECON_CRITERION
 
-    input = train_sample['input'].to(device)
-    lr_target = train_sample['lr_target'].to(device)
-    sample_id = train_sample['sample_id'].to(device)
-    scale_factor = train_sample['scale_factor'].to(device)
-    if 'shifts' in train_sample and 'dx_percent' in train_sample['shifts']:
-        gt_dx = train_sample['shifts']['dx_percent'].to(device)
-        gt_dy = train_sample['shifts']['dy_percent'].to(device)
+    input = _as_device_tensor(train_sample["input"], device)
+    lr_target = _as_device_tensor(train_sample["lr_target"], device)
+    sample_id = _as_device_tensor(train_sample["sample_id"], device)
+    if "shifts" in train_sample and "dx_percent" in train_sample["shifts"]:
+        gt_dx = _as_device_tensor(train_sample["shifts"]["dx_percent"], device)
+        gt_dy = _as_device_tensor(train_sample["shifts"]["dy_percent"], device)
     else:
         gt_dx = torch.zeros(lr_target.shape[0], device=device)
         gt_dy = torch.zeros(lr_target.shape[0], device=device)
@@ -134,33 +348,33 @@ def train_one_iteration(model, optimizer, train_sample, device, variance_reg=0.0
     optimizer.zero_grad()
 
     if use_gnll_loss:
-        output, pred_shifts, pred_variance = model(input, sample_id, scale_factor=1/scale_factor, lr_frames=lr_target)
+        output, pred_shifts, pred_variance = model(
+            input, sample_id, lr_frames=lr_target, lr_align_args=args
+        )
         recon_loss = recon_criterion(output, lr_target, pred_variance)
         
-        variance_reg_loss = torch.tensor(0.0, device=device)
-        variance_smooth_loss = torch.tensor(0.0, device=device)
+        variance_reg_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
+        variance_smooth_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
         if variance_reg > 0.0 or variance_smooth_reg > 0.0:
             if hasattr(model, 'use_separate_ud') and model.use_separate_ud and hasattr(model, 'variances'):
-                log_var_list = []
-                for sid in sample_id:
-                    log_var = model.variances[sid.item()]  # [H, W, C] - these are log-variances
-                    log_var_list.append(log_var)
-                
-                if log_var_list:
-                    log_vars = torch.stack(log_var_list, dim=0)  # [B, H, W, C]
-                    
-                    if variance_reg > 0.0:
-                        variance_reg_loss = variance_reg * torch.mean(log_vars ** 2)
-                    if variance_smooth_reg > 0.0:
-                        if log_vars.shape[1] > 1 and log_vars.shape[2] > 1:
-                            h_diff = log_vars[:, 1:, :, :] - log_vars[:, :-1, :, :]
-                            v_diff = log_vars[:, :, 1:, :] - log_vars[:, :, :-1, :]
-                            variance_smooth_loss = variance_smooth_reg * (torch.mean(h_diff ** 2) + torch.mean(v_diff ** 2))
+                idx = sample_id.reshape(-1).long()
+                log_vars = torch.stack([model.variances[i] for i in idx], dim=0)
+                if variance_reg > 0.0:
+                    variance_reg_loss = variance_reg * torch.mean(log_vars ** 2)
+                if variance_smooth_reg > 0.0:
+                    if log_vars.shape[1] > 1 and log_vars.shape[2] > 1:
+                        h_diff = log_vars[:, 1:, :, :] - log_vars[:, :-1, :, :]
+                        v_diff = log_vars[:, :, 1:, :] - log_vars[:, :, :-1, :]
+                        variance_smooth_loss = variance_smooth_reg * (
+                            torch.mean(h_diff ** 2) + torch.mean(v_diff ** 2)
+                        )
     else:
-        output, pred_shifts = model(input, sample_id, scale_factor=1/scale_factor, lr_frames=lr_target)
+        output, pred_shifts = model(
+            input, sample_id, lr_frames=lr_target, lr_align_args=args
+        )
         recon_loss = recon_criterion(output, lr_target)
-        variance_reg_loss = torch.tensor(0.0, device=device)
-        variance_smooth_loss = torch.tensor(0.0, device=device)
+        variance_reg_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
+        variance_smooth_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
 
     if isinstance(model, INR):
         pred_dx, pred_dy = pred_shifts
@@ -169,58 +383,24 @@ def train_one_iteration(model, optimizer, train_sample, device, variance_reg=0.0
         pred_dy_percent = pred_dy / lr_h
         trans_loss = torch.mean(torch.sqrt((pred_dx_percent - gt_dx)**2 + (pred_dy_percent - gt_dy)**2))
     else:
-        trans_loss = torch.zeros(1, device=device)
+        trans_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
 
     total_loss = recon_loss + variance_reg_loss + variance_smooth_loss
     total_loss.backward()
     optimizer.step()
     
     return {
-        'recon_loss': recon_loss.item(),
-        'trans_loss': trans_loss.item(),
-        'variance_reg_loss': variance_reg_loss.item(),
-        'variance_smooth_loss': variance_smooth_loss.item(),
-        'total_loss': total_loss.item()
+        'recon_loss': recon_loss,
+        'trans_loss': trans_loss,
+        'variance_reg_loss': variance_reg_loss,
+        'variance_smooth_loss': variance_smooth_loss,
+        'total_loss': total_loss,
     }
 
 
 def test_one_epoch(model, test_loader, device, eval_autocast_dtype=None):
-    model.eval()
-    
-    with torch.no_grad():
-        hr_coords = test_loader.get_hr_coordinates().unsqueeze(0).to(device)
-        hr_image = test_loader.get_original_hr().unsqueeze(0).to(device)
-        sample_id = torch.tensor([0]).to(device)
-        
-        if eval_autocast_dtype is not None:
-            with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
-                if model.use_gnll:
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-                else:
-                    if isinstance(model, INR):
-                        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-                    elif isinstance(model, NIR):
-                        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image)
-                        output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
-        else:
-            if model.use_gnll:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-            else:
-                if isinstance(model, INR):
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-                elif isinstance(model, NIR):
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image)
-                    output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
-
-        # Unstandardize the output
-        output = output * test_loader.get_lr_std(0).to(device) + test_loader.get_lr_mean(0).to(device)
-        
-        loss = F.mse_loss(output, hr_image)
-        
-        # Calculate PSNR
-        psnr = -10 * torch.log10(loss)
-        
-    return loss.item(), psnr.item()
+    metrics = eval_hr_metrics(model, test_loader, device, eval_autocast_dtype)
+    return metrics["test_loss"], metrics["test_psnr"]
 
 
 def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, output_dir):
@@ -241,6 +421,8 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
     
     # Lists to store training metrics
     psnr_list = []
+    ssim_list = []
+    lpips_list = []
     recon_loss_list = []
     trans_loss_list = []
     total_loss_list = []
@@ -251,40 +433,45 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
     
     train_dataloader = DataLoader(train_data, batch_size=1, shuffle=False)
     
+    eval_every = int(getattr(args, "eval_every", 100) or 0)
+    skip_eval = bool(getattr(args, "skip_eval", False))
+    
     while iteration < args.iters:
         for train_sample in train_dataloader:
             if iteration >= args.iters:
                 break
                 
-            train_losses = train_one_iteration(model, optimizer, train_sample, device,
-                                                variance_reg=args.variance_reg,
-                                                variance_smooth_reg=args.variance_smooth_reg)
+            train_losses = train_one_iteration(
+                model,
+                optimizer,
+                train_sample,
+                device,
+                args,
+                variance_reg=args.variance_reg,
+                variance_smooth_reg=args.variance_smooth_reg,
+            )
             scheduler.step()
             iteration += 1
 
             progress_bar.update(1)
-            postfix_dict = {
-                'recon': f"{train_losses['recon_loss']:.4f}",
-                'trans': f"{train_losses['trans_loss']:.4f}"
-            }
-            if train_losses.get('variance_reg_loss', 0.0) > 0.0:
-                postfix_dict['var_reg'] = f"{train_losses['variance_reg_loss']:.4f}"
-            if train_losses.get('variance_smooth_loss', 0.0) > 0.0:
-                postfix_dict['var_smooth'] = f"{train_losses['variance_smooth_loss']:.4f}"
-            progress_bar.set_postfix(postfix_dict)
+            if iteration % LOG_POSTFIX_INTERVAL == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
+                progress_bar.set_postfix(_train_postfix_from_scalars(scalars))
             
             # Periodic evaluation
-            if iteration % 100 == 0:
-                test_loss, test_psnr = test_one_epoch(model, train_data, device)
-                print(f"\nIter {iteration}: Train Loss: {train_losses['total_loss']:.6f}, "
-                      f"Test Loss: {test_loss:.6f}, Test PSNR: {test_psnr:.2f} dB")
+            if eval_every > 0 and not skip_eval and iteration % eval_every == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
+                eval_metrics = eval_hr_metrics(model, train_data, device)
+                print(_format_periodic_eval_line(iteration, scalars, eval_metrics))
 
                 # Store training metrics
                 iteration_list.append(iteration)
-                psnr_list.append(test_psnr)
-                recon_loss_list.append(train_losses['recon_loss'])
-                trans_loss_list.append(train_losses['trans_loss'])
-                total_loss_list.append(train_losses['total_loss'])
+                psnr_list.append(eval_metrics["test_psnr"])
+                ssim_list.append(eval_metrics["model_ssim"])
+                lpips_list.append(eval_metrics["model_lpips"])
+                recon_loss_list.append(scalars['recon_loss'])
+                trans_loss_list.append(scalars['trans_loss'])
+                total_loss_list.append(scalars['total_loss'])
 
     progress_bar.close()
     
@@ -377,7 +564,7 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         model_ssim = ssim(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
         bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
         
-        lpips_fn = lpips.LPIPS(net='vgg').to(device)
+        lpips_fn = get_lpips_model(device)
         model_lpips = lpips_fn((pred_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
         bilinear_lpips = lpips_fn((bilinear_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
         
@@ -389,6 +576,20 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         # MAE (Mean Absolute Error)
         model_mae = F.l1_loss(pred_aligned, gt_tensor).item()
         bilinear_mae = F.l1_loss(bilinear_aligned, gt_tensor).item()
+        
+        fixed_spot = _maybe_fixed_spot_metrics(
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args
+        )
+        if fixed_spot:
+            print(
+                f"Fixed spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center): "
+                f"PSNR {fixed_spot['model_psnr']:.2f} dB "
+                f"(bil {fixed_spot['bilinear_psnr']:.2f}, Δ {fixed_spot['psnr_improvement']:+.2f}), "
+                f"SSIM {fixed_spot['model_ssim']:.4f} "
+                f"(bil {fixed_spot['bilinear_ssim']:.4f}), "
+                f"LPIPS {fixed_spot['model_lpips']:.4f} "
+                f"(bil {fixed_spot['bilinear_lpips']:.4f})"
+            )
         
         # Convert aligned tensors back to numpy for visualization
         pred_aligned_np = pred_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
@@ -408,44 +609,24 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         # Save individual sample visualization
         sample_dir = output_dir / f"sample_{sample_idx:03d}"
         sample_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create comparison figure
-        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-        
-        axes[0, 0].imshow(lr_original)
-        axes[0, 0].set_title('Original LR Image', fontsize=14, fontweight='bold')
-        axes[0, 0].axis('off')
-        
-        axes[0, 1].imshow(bilinear_aligned_np)
-        axes[0, 1].set_title(f'Bilinear (Aligned)\nPSNR: {bilinear_psnr:.2f} dB', fontsize=14, fontweight='bold')
-        axes[0, 1].axis('off')
-        
-        axes[1, 0].imshow(pred_aligned_np)
-        axes[1, 0].set_title(f'Model Output (Aligned)\nPSNR: {model_psnr:.2f} dB', fontsize=14, fontweight='bold')
-        axes[1, 0].axis('off')
-        
-        axes[1, 1].imshow(gt_np)
-        axes[1, 1].set_title('Ground Truth HR', fontsize=14, fontweight='bold')
-        axes[1, 1].axis('off')
-        
-        plt.tight_layout(pad=2.0)
-        plt.savefig(sample_dir / "comparison.png", bbox_inches='tight', pad_inches=0.1, dpi=300)
-        plt.close()
-        
-        # Save individual images
-        plt.figure(figsize=(8, 8))
-        plt.imshow(pred_aligned_np)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        plt.savefig(sample_dir / "prediction_aligned.png", bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
-        
-        plt.figure(figsize=(8, 8))
-        plt.imshow(gt_np)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        plt.savefig(sample_dir / "ground_truth.png", bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
+
+        save_eval_visualizations(
+            sample_dir,
+            lr_hwc=lr_original,
+            bilinear_hwc=bilinear_aligned_np,
+            pred_hwc=pred_aligned_np,
+            gt_hwc=gt_np,
+            image_metrics={
+                "model_psnr": model_psnr,
+                "bilinear_psnr": bilinear_psnr,
+                "model_ssim": model_ssim,
+                "bilinear_ssim": bilinear_ssim,
+                "model_lpips": model_lpips,
+                "bilinear_lpips": bilinear_lpips,
+            },
+            fixed_spot=fixed_spot or None,
+            sample_label=f"Sample {sample_idx + 1}",
+        )
         
         # Plot training curves if we have data
         if len(psnr_list) > 0:
@@ -471,8 +652,8 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
             plt.savefig(sample_dir / "training_metrics.png", bbox_inches='tight', pad_inches=0.1, dpi=300)
             plt.close()
     
-    # Generate variance visualizations if using GNLL (unless disabled)
-    if model.use_gnll and not args.no_variance_viz:
+    # Variance maps are opt-in only (--visualize_variance); off by default even with GNLL.
+    if model.use_gnll and args.visualize_variance:
         print(f"\nGenerating variance visualizations for sample {sample_idx + 1}...")
         visualize_lr_variance(model, train_data, device, sample_dir, sample_idx)
     
@@ -510,6 +691,7 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
             'model_mae': model_mae,
             'bilinear_mae': bilinear_mae,
             'mae_improvement': bilinear_mae - model_mae,
+            'fixed_spot': fixed_spot,
         },
         'training_metrics': {
             'final_test_loss': final_test_loss,
@@ -1047,6 +1229,9 @@ def create_summary_visualization(all_results, output_dir):
     plt.tight_layout()
     plt.savefig(output_dir / "metrics_distribution.png", bbox_inches='tight', pad_inches=0.1, dpi=300)
     plt.close()
+
+    create_spot_summary_visualization(all_results, output_dir)
+    create_sr_sample_grid(output_dir, all_results)
     
     # Calculate and save aggregated statistics
     summary_stats = {
@@ -1212,11 +1397,10 @@ def main():
     parser.add_argument("--use_separate_ud", action="store_true", help="Use separate UD parameters for each sample (default: False)")
     parser.add_argument("--variance_reg", type=float, default=0.0, help="L2 regularization strength for log-variances (default: 0.0)")
     parser.add_argument("--variance_smooth_reg", type=float, default=0.0, help="Smoothness regularization strength for variance maps (default: 0.0)")
-    parser.add_argument("--visualize_variance", action="store_true", help="Visualize variance maps for each LR sample when using GNLL (single sample only)")
-    parser.add_argument("--no_variance_viz", action="store_true", help="Skip variance visualizations even when using GNLL (applies to both single and multi-sample modes)")
+    parser.add_argument("--visualize_variance", action="store_true", help="Opt in: save GNLL variance maps (slow; off by default)")
+    parser.add_argument("--no_variance_viz", action="store_true", help="Deprecated alias: variance viz is already off unless --visualize_variance is set")
     parser.add_argument("--no_base_frame", action="store_true", help="Disable base frame (default: use_base_frame=True)")
     parser.add_argument("--no_direct_param_T", action="store_true", help="Disable direct parameter T (default: use_direct_param_T=True)")
-    parser.add_argument("--use_color_shift", action="store_true", help="Use color shift (default: use_color_shift=False)")
     
     parser.add_argument("--satburst_data_root", type=str, default=None)
     parser.add_argument("--lr_size", type=int, default=0)
@@ -1228,17 +1412,54 @@ def main():
         choices=["area", "s2_psf", "s2_psf_m"],
         help="HR→LR operator during training (match synth_export_meta degradation).",
     )
+    parser.add_argument("--s2-native-gsd-m", dest="s2_native_gsd_m", type=float, default=10.0)
+    parser.add_argument("--s2-psf-truncate", dest="s2_psf_truncate", type=float, default=4.0)
+    parser.add_argument("--s2-psf-sigma-b02-m", dest="s2_psf_sigma_b02_m", type=float, default=2.8)
+    parser.add_argument("--s2-psf-sigma-b03-m", dest="s2_psf_sigma_b03_m", type=float, default=3.25)
+    parser.add_argument("--s2-psf-sigma-b04-m", dest="s2_psf_sigma_b04_m", type=float, default=4.2)
+    parser.add_argument("--s2-psf-sigma-b08-m", dest="s2_psf_sigma_b08_m", type=float, default=3.5)
     parser.add_argument("--hash_max_resolution", type=int, default=0)
     parser.add_argument("--hash_base_resolution", type=int, default=0)
     parser.add_argument("--hash_n_levels", type=int, default=16)
     parser.add_argument("--hash_n_features_per_level", type=int, default=2)
     parser.add_argument("--hash_log2_hashmap_size", type=int, default=19)
+    parser.add_argument(
+        "--hash_interpolation",
+        type=str,
+        default="smoothstep",
+        choices=["smoothstep", "linear"],
+        help=(
+            "Hash grid vertex interpolation (default: smoothstep). "
+            "smoothstep applies NGP Appendix A half-voxel per-level offset; "
+            "linear matches the paper's main multilinear default."
+        ),
+    )
+    parser.add_argument(
+        "--hash_level_sigma",
+        type=float,
+        default=0.0,
+        help=(
+            "Zip-NeRF style anti-aliasing level weights: each hash level l is scaled by "
+            "erf(1/(sqrt(8)*sigma*N_l)), suppressing levels finer than the LR supervision "
+            "footprint (fights blocky artifacts). sigma is the footprint std in normalized "
+            "coordinates: for area degradation with LR side W_lr use 1/(sqrt(12)*W_lr) "
+            "(e.g. W_lr=64 -> ~0.0045); for a Gaussian PSF use sigma_px_hr/W_hr. "
+            "0 disables (default)."
+        ),
+    )
     parser.add_argument("--tcnn_mlp_dtype", type=str, default="fp16", choices=["fp16", "fp32"])
     parser.add_argument("--supervision_channels", type=int, default=3)
     parser.add_argument("--eval_every", type=int, default=100)
     parser.add_argument("--no_multiband_diagnostics", action="store_true")
     parser.add_argument("--skip_eval", action="store_true")
     parser.add_argument("--skip_artifacts", action="store_true")
+    parser.add_argument(
+        "--eval-spot-hr-px",
+        dest="eval_spot_hr_px",
+        type=int,
+        default=DEFAULT_SPOT_HR_PX,
+        help="Center HR patch size for cross-LR-size spot metrics (0=disable).",
+    )
 
     # Training parameters
     parser.add_argument("--seed", type=int, default=6)
@@ -1251,6 +1472,12 @@ def main():
     parser.add_argument("--muon_ns_steps", type=int, default=5)
     parser.add_argument("--muon_eps", type=float, default=1e-8)
     parser.add_argument("--device", type=str, default="7", help="CUDA device number (e.g., '0', '1') or 'cpu' for CPU")
+    parser.add_argument(
+        "--dataset_device",
+        type=str,
+        default="auto",
+        help="Device for cached LR frames and coord grids (default: auto = same as --device).",
+    )
     parser.add_argument("--eval_mixed_precision", type=str, default="none",
                         choices=["none", "auto", "fp16", "bfloat16"],
                         help="Use mixed precision (FP16/BF16) for evaluation only; PSNR/metrics reported in this mode. none=float32.")
@@ -1276,11 +1503,14 @@ def main():
             requested_idx = 0
 
         device = torch.device(f"cuda:{requested_idx}")
+        torch.cuda.set_device(device)
     else:
         print(f"Warning: CUDA device {args.device} requested but CUDA not available. Using CPU.")
         device = torch.device("cpu")
     
     print(f"Using device: {device}")
+    args.dataset_device = resolve_dataset_device(args, training_device=device)
+    print(f"Dataset cache device: {args.dataset_device}", flush=True)
     eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
     if eval_autocast_dtype is not None:
         label = "BF16" if eval_autocast_dtype == torch.bfloat16 else "FP16"
@@ -1404,15 +1634,15 @@ def main():
             dataset_name_for_loader = args.dataset
             if args.dataset in ["worldstrat_sweet", "worldstrat_bitter"]:
                 dataset_name_for_loader = "worldstrat_test"
-            train_data = get_dataset(args=args, name=dataset_name_for_loader)
+            train_data = get_dataset(args=args, name=dataset_name_for_loader, training_device=device)
             
             # Run optimization for this sample with the fresh model
             result = optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, output_dir)
             all_results.append(result)
             
-            # Generate variance visualizations for this sample if using GNLL (unless disabled)
+            # Variance maps only when explicitly requested.
             use_gnll_loss = model.use_gnll
-            if use_gnll_loss and not args.no_variance_viz:
+            if use_gnll_loss and args.visualize_variance:
                 sample_dir = output_dir / f"sample_{sample_idx:03d}"
                 print(f"\nGenerating variance visualizations for sample {sample_id}...")
                 torch.cuda.empty_cache()  # Clear GPU memory
@@ -1429,7 +1659,7 @@ def main():
         else:
             args.root_burst_synth = "SyntheticBurstVal"
 
-    train_data = get_dataset(args=args, name=args.dataset)
+    train_data = get_dataset(args=args, name=args.dataset, training_device=device)
     train_dataloader = DataLoader(train_data, batch_size=1, shuffle=False)
 
     # Setup model
@@ -1451,6 +1681,8 @@ def main():
     
     # Lists to store PSNR and losses for plotting
     psnr_list = []
+    ssim_list = []
+    lpips_list = []
     recon_loss_list = []
     trans_loss_list = []
     total_loss_list = []
@@ -1462,18 +1694,25 @@ def main():
                 break
                 
             # Train one iteration
-            train_losses = train_one_iteration(model, optimizer, train_sample, device,
-                                                variance_reg=args.variance_reg,
-                                                variance_smooth_reg=args.variance_smooth_reg)
+            train_losses = train_one_iteration(
+                model,
+                optimizer,
+                train_sample,
+                device,
+                args,
+                variance_reg=args.variance_reg,
+                variance_smooth_reg=args.variance_smooth_reg,
+            )
             
             # Check for NaN/Inf in losses and break if detected
-            if (torch.isnan(torch.tensor(train_losses['recon_loss'])) or 
-                torch.isinf(torch.tensor(train_losses['recon_loss'])) or
-                torch.isnan(torch.tensor(train_losses['total_loss'])) or 
-                torch.isinf(torch.tensor(train_losses['total_loss']))):
+            if (torch.isnan(train_losses['recon_loss']) or 
+                torch.isinf(train_losses['recon_loss']) or
+                torch.isnan(train_losses['total_loss']) or 
+                torch.isinf(train_losses['total_loss'])):
+                scalars = _stack_train_loss_scalars(train_losses)
                 print(f"\nERROR: NaN/Inf detected in losses at iteration {iteration}")
-                print(f"Reconstruction loss: {train_losses['recon_loss']}")
-                print(f"Total loss: {train_losses['total_loss']}")
+                print(f"Reconstruction loss: {scalars['recon_loss']}")
+                print(f"Total loss: {scalars['total_loss']}")
                 print("Stopping training to prevent further issues.")
                 break
             
@@ -1482,36 +1721,32 @@ def main():
 
             # Update progress bar
             progress_bar.update(1)
-            postfix_dict = {
-                'recon': f"{train_losses['recon_loss']:.4f}",
-                'trans': f"{train_losses['trans_loss']:.4f}"
-            }
-            if train_losses.get('variance_reg_loss', 0.0) > 0.0:
-                postfix_dict['var_reg'] = f"{train_losses['variance_reg_loss']:.4f}"
-            if train_losses.get('variance_smooth_loss', 0.0) > 0.0:
-                postfix_dict['var_smooth'] = f"{train_losses['variance_smooth_loss']:.4f}"
-            progress_bar.set_postfix(postfix_dict)
+            if iteration % LOG_POSTFIX_INTERVAL == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
+                progress_bar.set_postfix(_train_postfix_from_scalars(scalars))
             
             # Periodic evaluation
             if eval_every > 0 and not getattr(args, "skip_eval", False) and iteration % eval_every == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
                 eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
-                test_loss, test_psnr = test_one_epoch(model, train_data, device, eval_autocast_dtype)
-                print(f"\nIter {iteration}: Train Loss: {train_losses['total_loss']:.6f}, "
-                      f"Test Loss: {test_loss:.6f}, Test PSNR: {test_psnr:.2f} dB")
+                eval_metrics = eval_hr_metrics(model, train_data, device, eval_autocast_dtype)
+                print(_format_periodic_eval_line(iteration, scalars, eval_metrics))
                 
                 # Additional debugging for GNLL
-                if model.use_gnll and (torch.isnan(torch.tensor(train_losses['recon_loss'])) or 
-                                     torch.isinf(torch.tensor(train_losses['recon_loss']))):
+                if model.use_gnll and (torch.isnan(train_losses['recon_loss']) or 
+                                     torch.isinf(train_losses['recon_loss'])):
                     print(f"WARNING: NaN/Inf detected in reconstruction loss at iteration {iteration}")
-                    print(f"Reconstruction loss: {train_losses['recon_loss']}")
-                    print(f"Total loss: {train_losses['total_loss']}")
+                    print(f"Reconstruction loss: {scalars['recon_loss']}")
+                    print(f"Total loss: {scalars['total_loss']}")
 
                 # Append to lists for plotting
                 iteration_list.append(iteration)
-                psnr_list.append(test_psnr)
-                recon_loss_list.append(train_losses['recon_loss'])
-                trans_loss_list.append(train_losses['trans_loss'])
-                total_loss_list.append(train_losses['total_loss'])
+                psnr_list.append(eval_metrics["test_psnr"])
+                ssim_list.append(eval_metrics["model_ssim"])
+                lpips_list.append(eval_metrics["model_lpips"])
+                recon_loss_list.append(scalars['recon_loss'])
+                trans_loss_list.append(scalars['trans_loss'])
+                total_loss_list.append(scalars['total_loss'])
 
     progress_bar.close()
     training_time = time.time() - training_start_time
@@ -1607,9 +1842,23 @@ def main():
         bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
 
         # LPIPS (expects [-1,1] range) - using aligned tensors for fair comparison
-        lpips_fn = lpips.LPIPS(net='vgg').to(device)
+        lpips_fn = get_lpips_model(device)
         pred_lpips = lpips_fn((pred_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
         bilinear_lpips = lpips_fn((bilinear_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
+
+        fixed_spot = _maybe_fixed_spot_metrics(
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args
+        )
+        if fixed_spot:
+            print(
+                f"Fixed spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center): "
+                f"PSNR {fixed_spot['model_psnr']:.2f} dB "
+                f"(bil {fixed_spot['bilinear_psnr']:.2f}, Δ {fixed_spot['psnr_improvement']:+.2f}), "
+                f"SSIM {fixed_spot['model_ssim']:.4f} "
+                f"(bil {fixed_spot['bilinear_ssim']:.4f}), "
+                f"LPIPS {fixed_spot['model_lpips']:.4f} "
+                f"(bil {fixed_spot['bilinear_lpips']:.4f})"
+            )
 
         # Convert aligned tensors back to numpy for visualization
         pred_aligned_np = pred_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
@@ -1626,78 +1875,33 @@ def main():
         if getattr(args, "run_name", None):
             sample_dir = sample_dir / str(args.run_name)
         sample_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save comparison figure with LR, bilinear upsampling (aligned), model output (aligned), and ground truth
-        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-        
-        # Original LR image
-        axes[0, 0].imshow(lr_original)
-        axes[0, 0].set_title('Original LR Image', fontsize=14, fontweight='bold')
-        axes[0, 0].axis('off')
-        
-        # Bilinear upsampling (color-aligned for fair comparison)
-        axes[0, 1].imshow(bilinear_aligned_np)
-        axes[0, 1].set_title(f'Bilinear Upsampling (Aligned)\nPSNR: {bilinear_psnr:.2f} dB', fontsize=14, fontweight='bold')
-        axes[0, 1].axis('off')
-        
-        # Model output (aligned)
-        axes[1, 0].imshow(pred_aligned_np)
-        axes[1, 0].set_title(f'Model Output (Aligned)\nPSNR: {model_psnr:.2f} dB', fontsize=14, fontweight='bold')
-        axes[1, 0].axis('off')
-        
-        # Ground truth
-        axes[1, 1].imshow(gt_np)
-        axes[1, 1].set_title('Ground Truth HR', fontsize=14, fontweight='bold')
-        axes[1, 1].axis('off')
-        
-        plt.tight_layout(pad=2.0)
+
+        save_eval_visualizations(
+            sample_dir,
+            lr_hwc=lr_original,
+            bilinear_hwc=bilinear_aligned_np,
+            pred_hwc=pred_aligned_np,
+            gt_hwc=gt_np,
+            image_metrics={
+                "model_psnr": model_psnr,
+                "bilinear_psnr": bilinear_psnr,
+                "model_ssim": model_ssim,
+                "bilinear_ssim": bilinear_ssim,
+                "model_lpips": pred_lpips,
+                "bilinear_lpips": bilinear_lpips,
+            },
+            fixed_spot=fixed_spot or None,
+            sample_label=str(args.sample_id),
+        )
         comparison_path = sample_dir / "comparison.png"
-        plt.savefig(comparison_path, bbox_inches='tight', pad_inches=0.1, dpi=300)
-        plt.close()
-        
-        # Save individual images for reference (using aligned images)
-        plt.figure(figsize=(8, 8))
-        plt.imshow(pred_aligned_np)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        pred_path = sample_dir / "model_output_aligned.png"
-        plt.savefig(pred_path, bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
-        
-        plt.figure(figsize=(8, 8))
-        plt.imshow(gt_np)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        gt_path = sample_dir / "ground_truth.png"
-        plt.savefig(gt_path, bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
-        
-        # Save bilinear baseline for reference (aligned version)
-        plt.figure(figsize=(8, 8))
-        plt.imshow(bilinear_aligned_np)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        bilinear_path = sample_dir / "bilinear_baseline.png"
-        plt.savefig(bilinear_path, bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
-        
-        # Save LR original for reference
-        plt.figure(figsize=(8, 8))
-        plt.imshow(lr_original)
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        lr_path = sample_dir / "lr_original.png"
-        plt.savefig(lr_path, bbox_inches='tight', pad_inches=0, dpi=300)
-        plt.close()
-        
         output_path = comparison_path
         
     print(f"\nFinal Results:")
     print(f"Test Loss: {final_test_loss:.6f}")
     print(f"Test PSNR: {final_psnr:.2f} dB")
-    print(f"Model PSNR: {model_psnr:.2f} dB")
-    print(f"Bilinear PSNR: {bilinear_psnr:.2f} dB")
-    print(f"PSNR Improvement: {model_psnr - bilinear_psnr:.2f} dB")
+    print(f"Model PSNR: {model_psnr:.2f} dB (bilinear {bilinear_psnr:.2f}, Δ {model_psnr - bilinear_psnr:+.2f} dB)")
+    print(f"Model SSIM: {model_ssim:.4f} (bilinear {bilinear_ssim:.4f}, Δ {model_ssim - bilinear_ssim:+.4f})")
+    print(f"Model LPIPS: {pred_lpips:.4f} (bilinear {bilinear_lpips:.4f}, Δ {bilinear_lpips - pred_lpips:+.4f}; lower is better)")
     print(f"Model output saved to {output_path}")
     
     # Create structured output directory for single sample results
@@ -1732,7 +1936,19 @@ def main():
     - Model Output: {pred_lpips:.4f}
     - Bilinear Interpolation: {bilinear_lpips:.4f}
     - LPIPS Improvement: {bilinear_lpips - pred_lpips:.4f}
-
+"""
+    if fixed_spot:
+        results_text += f"""
+    Fixed Spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center):
+    - Model PSNR: {fixed_spot['model_psnr']:.2f} dB
+    - Bilinear PSNR: {fixed_spot['bilinear_psnr']:.2f} dB
+    - PSNR Improvement: {fixed_spot['psnr_improvement']:+.2f} dB
+    - Model SSIM: {fixed_spot['model_ssim']:.4f}
+    - Bilinear SSIM: {fixed_spot['bilinear_ssim']:.4f}
+    - Model LPIPS: {fixed_spot['model_lpips']:.4f}
+    - Bilinear LPIPS: {fixed_spot['bilinear_lpips']:.4f}
+"""
+    results_text += f"""
     Training Results:
     - Final Test Loss: {final_test_loss:.6f}
     - Final Test PSNR: {final_psnr:.2f} dB
@@ -1746,10 +1962,18 @@ def main():
     if len(psnr_list) > 0:
         results_text += f"- Number of evaluation points: {len(psnr_list)}\n"
         results_text += f"- PSNR range: {min(psnr_list):.2f} - {max(psnr_list):.2f} dB\n"
+        if len(ssim_list) > 0:
+            results_text += f"- SSIM range: {min(ssim_list):.4f} - {max(ssim_list):.4f}\n"
+        if len(lpips_list) > 0:
+            results_text += f"- LPIPS range: {min(lpips_list):.4f} - {max(lpips_list):.4f}\n"
         results_text += f"- Reconstruction loss range: {min(recon_loss_list):.6f} - {max(recon_loss_list):.6f}\n"
         results_text += f"- Transformation loss range: {min(trans_loss_list):.6f} - {max(trans_loss_list):.6f}\n"
         results_text += f"- Total loss range: {min(total_loss_list):.6f} - {max(total_loss_list):.6f}\n"
         results_text += f"- Final PSNR: {psnr_list[-1]:.2f} dB\n"
+        if len(ssim_list) > 0:
+            results_text += f"- Final SSIM: {ssim_list[-1]:.4f}\n"
+        if len(lpips_list) > 0:
+            results_text += f"- Final LPIPS: {lpips_list[-1]:.4f}\n"
         results_text += f"- Final reconstruction loss: {recon_loss_list[-1]:.6f}\n"
         results_text += f"- Final transformation loss: {trans_loss_list[-1]:.6f}\n"
         results_text += f"- Final total loss: {total_loss_list[-1]:.6f}\n"
@@ -1798,9 +2022,22 @@ def main():
             'final_test_psnr': final_psnr,
             'final_recon_loss': recon_loss_list[-1] if recon_loss_list else 0,
             'final_trans_loss': trans_loss_list[-1] if trans_loss_list else 0,
-            'final_total_loss': total_loss_list[-1] if total_loss_list else 0
+            'final_total_loss': total_loss_list[-1] if total_loss_list else 0,
+            'history': {
+                'iterations': iteration_list,
+                'psnr': psnr_list,
+                'model_ssim': ssim_list,
+                'model_lpips': lpips_list,
+                'recon_loss': recon_loss_list,
+                'trans_loss': trans_loss_list,
+                'total_loss': total_loss_list,
+            },
         }
     }
+    if int(getattr(args, "lr_size", 0) or 0) > 0:
+        metrics_dict["lr_size"] = int(args.lr_size)
+    if fixed_spot:
+        metrics_dict["fixed_spot"] = fixed_spot
     
     with open(sample_dir / "metrics.json", "w") as f:
         json.dump(metrics_dict, f, indent=2)
@@ -1808,19 +2045,37 @@ def main():
     print(f"Results saved to: {sample_dir}")
     print(f"PSNR results also saved to psnr_results.txt (current directory)")
 
-    # Plot PSNR and all losses
+    # Plot PSNR / SSIM / LPIPS and losses
     if len(psnr_list) > 0:
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-        
-        # Plot PSNR on top subplot
+        nrows = 3 if len(ssim_list) > 0 else 2
+        fig, axes = plt.subplots(nrows, 1, figsize=(12, 4 * nrows))
+        if nrows == 2:
+            ax1, ax2 = axes
+        else:
+            ax1, ax_mid, ax2 = axes
+
         ax1.plot(iteration_list, psnr_list, color='blue', linewidth=2, label='PSNR (Test)')
         ax1.set_xlabel('Iteration', fontsize=12)
         ax1.set_ylabel('PSNR (dB)', fontsize=12)
         ax1.set_title('Training PSNR Evolution', fontsize=14, fontweight='bold')
         ax1.grid(True, alpha=0.3)
         ax1.legend()
-        
-        # Plot all losses on bottom subplot
+
+        if nrows == 3:
+            ax_mid.plot(iteration_list, ssim_list, color='purple', linewidth=2, label='SSIM')
+            ax_mid.set_xlabel('Iteration', fontsize=12)
+            ax_mid.set_ylabel('SSIM', fontsize=12, color='purple')
+            ax_mid.tick_params(axis='y', labelcolor='purple')
+            ax_mid.grid(True, alpha=0.3)
+            ax_mid_lpips = ax_mid.twinx()
+            ax_mid_lpips.plot(iteration_list, lpips_list, color='brown', linewidth=2, label='LPIPS')
+            ax_mid_lpips.set_ylabel('LPIPS (lower better)', fontsize=12, color='brown')
+            ax_mid_lpips.tick_params(axis='y', labelcolor='brown')
+            ax_mid.set_title('Training SSIM / LPIPS Evolution', fontsize=14, fontweight='bold')
+            lines_l, labels_l = ax_mid.get_legend_handles_labels()
+            lines_r, labels_r = ax_mid_lpips.get_legend_handles_labels()
+            ax_mid.legend(lines_l + lines_r, labels_l + labels_r, loc='best')
+
         ax2.plot(iteration_list, recon_loss_list, color='red', linewidth=2, label='Reconstruction Loss')
         ax2.plot(iteration_list, trans_loss_list, color='green', linewidth=2, label='Transformation Loss')
         ax2.plot(iteration_list, total_loss_list, color='purple', linewidth=2, label='Total Loss')
@@ -1840,17 +2095,15 @@ def main():
     else:
         print("No metrics data available for plotting (training may have been too short)")
     
-    # Generate variance visualizations if requested and using GNLL
-    # Note: For multi_sample mode, variance visualization is done in the multi_sample loop above
+    # Generate variance visualizations only when explicitly requested.
     use_gnll_loss = model.use_gnll
-    if args.visualize_variance and use_gnll_loss and not args.multi_sample and not args.no_variance_viz:
+    if args.visualize_variance and use_gnll_loss and not args.multi_sample:
         print("Generating variance visualizations for each LR sample...")
         # Clear GPU memory before variance visualization
         torch.cuda.empty_cache()
         visualize_lr_variance(model, train_data, device, sample_dir, args.sample_id)
     elif args.visualize_variance and not use_gnll_loss:
         print("Warning: --visualize_variance requested but model does not use GNLL. Skipping variance visualization.")
-    # For multi_sample mode, variance is automatically generated if use_gnll is enabled (unless --no_variance_viz is set)
 
 
 if __name__ == "__main__":

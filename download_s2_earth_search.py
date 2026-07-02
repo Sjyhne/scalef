@@ -221,6 +221,165 @@ def _item_mgrs_tile(item) -> str | None:
     return None
 
 
+def normalize_mgrs_tile(tile: str) -> str:
+    text = str(tile).strip().upper().replace("MGRS-", "")
+    if not text:
+        raise ValueError("MGRS tile must not be empty")
+    return text
+
+
+def item_footprint_bbox(item) -> tuple[float, float, float, float]:
+    geom = item.geometry
+    if geom["type"] == "Polygon":
+        rings = geom["coordinates"]
+    elif geom["type"] == "MultiPolygon":
+        rings = [poly[0] for poly in geom["coordinates"]]
+    else:
+        raise ValueError(f"Unsupported geometry type: {geom['type']!r}")
+    coords = [pt for ring in rings for pt in ring]
+    lons = [float(c[0]) for c in coords]
+    lats = [float(c[1]) for c in coords]
+    return min(lons), min(lats), max(lons), max(lats)
+
+
+def item_centroid_wgs84(item) -> tuple[float, float]:
+    west, south, east, north = item_footprint_bbox(item)
+    return (west + east) * 0.5, (south + north) * 0.5
+
+
+def discover_mgrs_tiles_in_bbox(
+    bbox: tuple[float, float, float, float],
+    *,
+    datetime_range: str,
+    collection: str = DEFAULT_COLLECTION,
+    max_cloud_cover: float | None = None,
+    max_items: int | None = None,
+) -> dict[str, dict]:
+    """Return ``{tile: {center_lon, center_lat, scene_count, sample_item_id}}``."""
+    import pystac_client
+
+    west, south, east, north = _parse_bbox(bbox)
+    catalog = pystac_client.Client.open(EARTH_SEARCH_STAC_URL)
+    kwargs: dict = {
+        "collections": [collection],
+        "bbox": [west, south, east, north],
+        "datetime": datetime_range,
+        "max_items": 500,
+    }
+    if max_cloud_cover is not None:
+        kwargs["query"] = {"eo:cloud_cover": {"lt": float(max_cloud_cover)}}
+
+    tiles: dict[str, dict] = {}
+    search = catalog.search(**kwargs)
+    pages = getattr(search, "pages", None)
+    if callable(pages):
+        item_pages = pages()
+    else:
+        item_pages = [search.items()]
+
+    seen = 0
+    for page in item_pages:
+        for item in page:
+            seen += 1
+            if max_items is not None and seen > int(max_items):
+                break
+            tile = _item_mgrs_tile(item)
+            if not tile:
+                continue
+            tile = normalize_mgrs_tile(tile)
+            lon, lat = item_centroid_wgs84(item)
+            entry = tiles.get(tile)
+            if entry is None:
+                tiles[tile] = {
+                    "mgrs_tile": tile,
+                    "center_lon": lon,
+                    "center_lat": lat,
+                    "scene_count": 1,
+                    "sample_item_id": item.id,
+                }
+            else:
+                entry["scene_count"] += 1
+        if max_items is not None and seen > int(max_items):
+            break
+
+    for entry in tiles.values():
+        entry["center_lon"] = float(entry["center_lon"])
+        entry["center_lat"] = float(entry["center_lat"])
+        entry["scene_count"] = int(entry["scene_count"])
+    return dict(sorted(tiles.items()))
+
+
+def _mgrs_grid_code(tile: str) -> str:
+    return f"MGRS-{normalize_mgrs_tile(tile)}"
+
+
+def search_items_for_mgrs_tile(
+    mgrs_tile: str,
+    *,
+    datetime_range: str,
+    collection: str = DEFAULT_COLLECTION,
+    max_cloud_cover: float | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    max_items: int | None = None,
+) -> list:
+    """STAC search filtered server-side by ``grid:code`` (reliable per-tile lookup)."""
+    import pystac_client
+
+    tile = normalize_mgrs_tile(mgrs_tile)
+    catalog = pystac_client.Client.open(EARTH_SEARCH_STAC_URL)
+    query: dict = {"grid:code": {"eq": _mgrs_grid_code(tile)}}
+    if max_cloud_cover is not None:
+        query["eo:cloud_cover"] = {"lt": float(max_cloud_cover)}
+    kwargs: dict = {
+        "collections": [collection],
+        "datetime": datetime_range,
+        "query": query,
+        "max_items": 500,
+    }
+    if bbox is not None:
+        kwargs["bbox"] = list(bbox)
+
+    items: list = []
+    search = catalog.search(**kwargs)
+    pages = getattr(search, "pages", None)
+    if callable(pages):
+        item_pages = pages()
+    else:
+        item_pages = [search.items()]
+    for page in item_pages:
+        for item in page:
+            items.append(item)
+            if max_items is not None and len(items) >= int(max_items):
+                break
+        if max_items is not None and len(items) >= int(max_items):
+            break
+
+    items.sort(key=lambda it: it.properties.get("datetime", ""))
+    if max_items is not None and max_items > 0:
+        items = items[: int(max_items)]
+    return items
+
+
+def reference_item_for_mgrs_tile(
+    mgrs_tile: str,
+    *,
+    datetime_range: str,
+    collection: str = DEFAULT_COLLECTION,
+    max_cloud_cover: float | None = None,
+):
+    items = search_items_for_mgrs_tile(
+        mgrs_tile,
+        datetime_range=datetime_range,
+        collection=collection,
+        max_cloud_cover=max_cloud_cover,
+    )
+    tile = normalize_mgrs_tile(mgrs_tile)
+    if not items:
+        raise RuntimeError(f"No {collection} items found for tile {tile} in {datetime_range}")
+    item = items[0]
+    return item, item_footprint_bbox(item), tile
+
+
 def detect_main_tile(items) -> str | None:
     from collections import Counter
 

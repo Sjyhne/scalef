@@ -9,7 +9,6 @@ import torch
 from models.lr_alignment import default_lr_align_args
 
 from eval.rgb import (
-    _dataset_scale_factor,
     _fetch_lr_pre_standardize_hwc_np,
     _fetch_lr_supervision_batch,
     _hwc_rgb_for_imshow,
@@ -57,8 +56,9 @@ def visualize_lr_variance(model, train_data, device, output_dir, sample_id):
         global_vmin = None
         global_vmax = None
 
-        scale_factor = _dataset_scale_factor(train_data)
-        lr_align_args = default_lr_align_args()
+        lr_align_args = default_lr_align_args(
+            lr_degradation=str(getattr(model, "lr_degradation", "area"))
+        )
 
         # Process each LR sample individually
         for i in range(num_samples):
@@ -70,7 +70,6 @@ def visualize_lr_variance(model, train_data, device, output_dir, sample_id):
             output_lr, _, variance = model(
                 hr_coords,
                 sample_id_tensor,
-                scale_factor=scale_factor,
                 lr_frames=lr_batch,
                 lr_align_args=lr_align_args,
             )

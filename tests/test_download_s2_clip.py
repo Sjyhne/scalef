@@ -4,12 +4,14 @@ import numpy as np
 import pytest
 
 from download_s2_earth_search import (
+    _mgrs_grid_code,
     _north_is_low_y_index,
     _west_is_low_x_index,
     aoi_nodata_fractions,
     best_valid_window,
     clip_stack_mgrs_subtile,
     filter_stack_by_aoi_nodata,
+    normalize_mgrs_tile,
 )
 
 
@@ -27,6 +29,11 @@ class _FakeStack:
         y = self.y.values[y_sl]
         x = self.x.values[x_sl]
         return _FakeStack(y, x, sub)
+
+
+def test_normalize_mgrs_grid_code():
+    assert normalize_mgrs_tile("mgrs-19kdt") == "19KDT"
+    assert _mgrs_grid_code("19KDT") == "MGRS-19KDT"
 
 
 def test_north_west_quarter_north_up():

@@ -38,11 +38,12 @@ def _stretch_reflectance_to_uint8(
     gamma: float = 1.0,
 ) -> np.ndarray:
     span = np.maximum(hi - lo, 1e-6)
-    x = (rgb - lo) / span
+    x = (np.asarray(rgb, dtype=np.float32) - lo) / span
     x = np.clip(x, 0.0, 1.0)
     if gamma != 1.0 and gamma > 0:
         x = np.power(x, float(gamma))
-    return reflectance_to_uint8_linear(x)
+    x = np.nan_to_num(x, nan=0.0, posinf=1.0, neginf=0.0)
+    return (x * 255.0).round().astype(np.uint8)
 
 
 def reflectance_list_to_uint8_scene_percentile(

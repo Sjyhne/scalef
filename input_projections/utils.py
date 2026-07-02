@@ -12,6 +12,8 @@ def _make_hashgrid_kwargs(
     hash_base_resolution,
     hash_max_resolution,
     device,
+    hash_interpolation="smoothstep",
+    hash_level_sigma=0.0,
 ):
     return dict(
         input_dim=input_dim,
@@ -20,6 +22,8 @@ def _make_hashgrid_kwargs(
         log2_hashmap_size=hash_log2_hashmap_size,
         base_resolution=hash_base_resolution,
         max_resolution=hash_max_resolution,
+        interpolation=hash_interpolation,
+        level_sigma=hash_level_sigma,
         device=device,
     )
 
@@ -38,6 +42,8 @@ def get_input_projection(
     hash_base_resolution=16,
     hash_max_resolution=2048,
     hash_tcnn_output_dtype="fp32",
+    hash_interpolation="smoothstep",
+    hash_level_sigma=0.0,
 ):
     if input_projection_name is None:
         return None
@@ -56,6 +62,8 @@ def get_input_projection(
                 hash_base_resolution,
                 hash_max_resolution,
                 device,
+                hash_interpolation,
+                hash_level_sigma,
             )
         )
     if name in {"hashgrid_tcnn", "hash_tcnn", "ngp_hash_tcnn"}:
@@ -79,6 +87,8 @@ def get_input_projection(
                     hash_base_resolution,
                     hash_max_resolution,
                     device,
+                    hash_interpolation,
+                    hash_level_sigma,
                 )
             )
 
@@ -92,6 +102,8 @@ def get_input_projection(
             hash_base_resolution,
             hash_max_resolution,
             device,
+            hash_interpolation,
+            hash_level_sigma,
         )
         tcnn_kwargs["output_dtype"] = hash_tcnn_output_dtype
         return HashGridTcnn(**tcnn_kwargs)

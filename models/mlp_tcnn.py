@@ -43,13 +43,37 @@ class MLPTcnn(nn.Module):
             network_config["otype"] = "CutlassMLP"
             self._network = tcnn.Network(self.input_dim, self.output_dim, network_config)
 
-        if self.dtype == "fp32":
+        native_fp16 = self._tcnn_native_fp16()
+        if self.dtype == "fp32" and native_fp16:
             warnings.warn(
                 "MLPTcnn requested fp32, but this tinycudann build computes in fp16. "
-                "To get true fp32 kernels, reinstall tinycudann with TCNN_HALF_PRECISION=0.",
+                "Reinstall with: TCNN_HALF_PRECISION=0 pip install --no-build-isolation "
+                "\"git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch\"",
                 UserWarning,
                 stacklevel=2,
             )
+
+    @staticmethod
+    def _tcnn_native_fp16() -> bool:
+        """True when the installed tinycudann kernels use fp16 internally."""
+        if not torch.cuda.is_available():
+            return True
+        try:
+            probe = tcnn.Network(
+                4,
+                1,
+                {
+                    "otype": "FullyFusedMLP",
+                    "activation": "ReLU",
+                    "output_activation": "None",
+                    "n_neurons": 16,
+                    "n_hidden_layers": 1,
+                },
+            )
+            y = probe(torch.zeros(1, 4, device="cuda"))
+            return y.dtype == torch.float16
+        except Exception:
+            return True
 
     def forward(self, x):
         orig_shape = x.shape[:-1]

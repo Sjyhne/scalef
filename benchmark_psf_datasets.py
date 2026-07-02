@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Benchmark matched data + training PSF on synth bursts (DSen2 vs s2_psf_m).
+"""Benchmark data PSF × train PSF × hash_max on synth bursts.
 
-Compares:
+Full factorial (default ``--mode quick``):
 
-- ``satburstsynth_data`` (``degradation: s2_psf_dsen2`` in ``synth_export_meta.json``)
-  → train with ``--lr_degradation s2_psf``
-- ``satsynthburst_data_s2psfm`` (``degradation: s2_psf_m``)
-  → train with ``--lr_degradation s2_psf_m``
+- **Data construction** (2): DSen2 ``satburstsynth_data`` vs meter PSF ``satsynthburst_data_s2psfm``
+- **Train LR degradation** (2): ``s2_psf`` vs ``s2_psf_m``
+- **hash_max** (2): auto (0 → LR side) vs 2×LR
+
+→ 8 runs at LR 224. Use ``--matched-only`` for the old 4-run matched-pair grid.
 
 Examples:
 
-    # Quick: LR 224, hash_max auto + 2×S, both datasets (4 runs)
+    # Full 2×2×2 grid (8 runs)
     python benchmark_psf_datasets.py --mode quick --dry-run
 
-    # Full hash_max × LR ablation on both datasets (46 runs)
+    # Matched pairs only (4 runs): dsen2+s2_psf, psfm+s2_psf_m
+    python benchmark_psf_datasets.py --mode quick --matched-only --dry-run
+
+    # Ablation: factorial × lr_relative hash grid × all LR folder sizes
     python benchmark_psf_datasets.py --mode ablation --all-lr-sizes --dry-run
 """
 
@@ -38,9 +42,18 @@ LR_FOLDER_RE = re.compile(
     r"^scale_(?P<df>\d+)_lr(?P<lr>\d+)_shift_(?P<shift>[\d.]+)px_aug_(?P<aug>\w+)$"
 )
 
-PSF_DATASETS: tuple[tuple[str, str, str], ...] = (
-    ("s2_psf", "satburstsynth_data", "s2_psf"),
-    ("s2_psf_m", "satsynthburst_data_s2psfm", "s2_psf_m"),
+# (tag, satburst_data_root) — tag labels how LR bursts were synthesized.
+DATA_SOURCES: tuple[tuple[str, str], ...] = (
+    ("dsen2", "satburstsynth_data"),
+    ("psfm", "satsynthburst_data_s2psfm"),
+)
+
+TRAIN_DEGRADATIONS: tuple[str, ...] = ("s2_psf", "s2_psf_m")
+
+# Legacy matched pairs: (data_tag, data_root, train_degradation)
+MATCHED_PSF_DATASETS: tuple[tuple[str, str, str], ...] = (
+    ("dsen2", "satburstsynth_data", "s2_psf"),
+    ("psfm", "satsynthburst_data_s2psfm", "s2_psf_m"),
 )
 
 
@@ -116,16 +129,23 @@ def read_scene_degradation(scene_dir: Path) -> str | None:
     return str(data.get("degradation")) if isinstance(data, dict) else None
 
 
+def _train_degradation_tag(train_degradation: str) -> str:
+    return "s2psfm" if str(train_degradation) == "s2_psf_m" else "s2psf"
+
+
 def _run_name(
     hash_max: int,
     prefix: str,
     *,
     lr_size: int | None = None,
-    psf_tag: str | None = None,
+    data_tag: str | None = None,
+    train_degradation: str | None = None,
 ) -> str:
     parts = [prefix]
-    if psf_tag:
-        parts.append(psf_tag)
+    if data_tag:
+        parts.append(f"data_{data_tag}")
+    if train_degradation:
+        parts.append(f"train_{_train_degradation_tag(train_degradation)}")
     if lr_size is not None:
         parts.append(f"lr{int(lr_size)}")
     base = "_".join(parts)
@@ -139,7 +159,8 @@ def build_optimize_command(args: Namespace, hash_max: int) -> list[str]:
         hash_max,
         args.run_prefix,
         lr_size=lr_size if getattr(args, "_multi_lr", False) else None,
-        psf_tag=str(getattr(args, "psf_tag", "")) or None,
+        data_tag=str(getattr(args, "data_tag", "")) or None,
+        train_degradation=str(getattr(args, "lr_degradation", "")) or None,
     )
     cmd = [
         sys.executable,
@@ -229,17 +250,17 @@ def _resolve_hash_max_list(args: Namespace, lr_side: int) -> list[int]:
     raise ValueError(f"Unknown preset: {preset!r}")
 
 
-def build_plan_for_dataset(
+def build_plan_for_cell(
     base_args: Namespace,
     *,
-    psf_tag: str,
+    data_tag: str,
     data_root: str,
     train_degradation: str,
 ) -> list[dict]:
     args = copy(base_args)
     args.satburst_data_root = str(data_root)
     args.lr_degradation = str(train_degradation)
-    args.psf_tag = str(psf_tag)
+    args.data_tag = str(data_tag)
 
     lr_sizes = _resolve_lr_sizes(args)
     multi_lr = len(lr_sizes) > 1
@@ -258,9 +279,18 @@ def build_plan_for_dataset(
         data_deg = read_scene_degradation(scene)
 
         for hm in hash_max_values:
+            run_name = _run_name(
+                hm,
+                run_args.run_prefix,
+                lr_size=lr_size if run_args._multi_lr else None,
+                data_tag=data_tag,
+                train_degradation=train_degradation,
+            )
+            entry_args = copy(run_args)
+            entry_args.run_name = run_name
             plan.append(
                 {
-                    "psf_benchmark": psf_tag,
+                    "data_tag": str(data_tag),
                     "satburst_data_root": str(data_root),
                     "data_degradation": data_deg,
                     "train_lr_degradation": str(train_degradation),
@@ -268,16 +298,53 @@ def build_plan_for_dataset(
                     "lr_side": int(lr_side),
                     "scene": str(scene),
                     "hash_max_requested": int(hm),
-                    "run_name": _run_name(
-                        hm,
-                        run_args.run_prefix,
-                        lr_size=lr_size if run_args._multi_lr else None,
-                        psf_tag=psf_tag,
-                    ),
-                    "run_args": run_args,
-                    "command": build_optimize_command(run_args, hm),
+                    "run_name": run_name,
+                    "run_args": entry_args,
+                    "command": build_optimize_command(entry_args, hm),
                 }
             )
+    return plan
+
+
+def build_factorial_plan(base_args: Namespace) -> list[dict]:
+    data_sources = list(DATA_SOURCES)
+    train_degs = list(TRAIN_DEGRADATIONS)
+
+    if base_args.data_sources:
+        allowed = set(base_args.data_sources)
+        data_sources = [(t, r) for t, r in data_sources if t in allowed]
+    if base_args.train_degradations:
+        allowed = set(base_args.train_degradations)
+        train_degs = [d for d in train_degs if d in allowed]
+
+    plan: list[dict] = []
+    for data_tag, data_root in data_sources:
+        for train_deg in train_degs:
+            plan.extend(
+                build_plan_for_cell(
+                    base_args,
+                    data_tag=data_tag,
+                    data_root=data_root,
+                    train_degradation=train_deg,
+                )
+            )
+    return plan
+
+
+def build_matched_plan(base_args: Namespace) -> list[dict]:
+    selected = set(base_args.data_sources) if base_args.data_sources else None
+    plan: list[dict] = []
+    for data_tag, data_root, train_deg in MATCHED_PSF_DATASETS:
+        if selected and data_tag not in selected:
+            continue
+        plan.extend(
+            build_plan_for_cell(
+                base_args,
+                data_tag=data_tag,
+                data_root=data_root,
+                train_degradation=train_deg,
+            )
+        )
     return plan
 
 
@@ -287,14 +354,39 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=("quick", "ablation"),
         default="quick",
-        help="quick = LR 224, hash_max auto+2S; ablation = lr_relative grid (use with --all-lr-sizes).",
+        help="quick = LR 224, hash_max auto+2S, full 2×2×2 factorial; ablation = lr_relative grid.",
     )
     p.add_argument("--hash-max", dest="hash_max", nargs="*", type=int)
     p.add_argument("--hash-max-preset", default="lr_relative", choices=("lr_relative", "small", "medium", "large"))
     p.add_argument("--run-prefix", default="bench")
     p.add_argument("--output-dir", type=Path, default=None)
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--datasets", nargs="*", default=None, help="Subset: s2_psf s2_psf_m (default: both).")
+    p.add_argument(
+        "--matched-only",
+        action="store_true",
+        help="Only matched data/train PSF pairs (4 runs in quick mode). Default is full factorial (8 runs).",
+    )
+    p.add_argument(
+        "--data-sources",
+        dest="data_sources",
+        nargs="*",
+        default=None,
+        help="Subset of data construction tags: dsen2 psfm (default: both).",
+    )
+    p.add_argument(
+        "--train-degradations",
+        dest="train_degradations",
+        nargs="*",
+        default=None,
+        choices=["s2_psf", "s2_psf_m"],
+        help="Subset of train --lr_degradation values (default: both).",
+    )
+    p.add_argument(
+        "--datasets",
+        nargs="*",
+        default=None,
+        help="Deprecated alias for --data-sources (dsen2 psfm).",
+    )
 
     lr = p.add_argument_group("scene")
     lr.add_argument("--lr-sizes", dest="lr_sizes", nargs="*", type=int)
@@ -327,6 +419,48 @@ def _load_metrics(path: Path) -> dict:
         return json.load(f)
 
 
+def _spot_from_metrics(metrics: dict) -> dict:
+    spot = metrics.get("fixed_spot")
+    return spot if isinstance(spot, dict) else {}
+
+
+def _write_spot_lr_comparison(results: list[dict], out_dir: Path) -> Path | None:
+    """Pivot fixed-spot metrics by LR size for runs that share the same config."""
+    rows: list[dict] = []
+    for row in results:
+        spot = row.get("fixed_spot") or {}
+        if not spot:
+            continue
+        rows.append(
+            {
+                "data_tag": row.get("data_tag"),
+                "data_degradation": row.get("data_degradation"),
+                "train_lr_degradation": row.get("train_lr_degradation"),
+                "hash_max_requested": row.get("hash_max_requested"),
+                "lr_size": row.get("lr_size"),
+                "run_name": row.get("run_name"),
+                "spot_hr_pixels": spot.get("hr_pixels"),
+                "spot_model_psnr": spot.get("model_psnr"),
+                "spot_bilinear_psnr": spot.get("bilinear_psnr"),
+                "spot_psnr_improvement": spot.get("psnr_improvement"),
+                "spot_model_ssim": spot.get("model_ssim"),
+                "spot_bilinear_ssim": spot.get("bilinear_ssim"),
+                "spot_model_lpips": spot.get("model_lpips"),
+                "spot_bilinear_lpips": spot.get("bilinear_lpips"),
+            }
+        )
+    if not rows:
+        return None
+
+    csv_path = out_dir / "spot_by_lr_size.csv"
+    fieldnames = list(rows[0].keys())
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(sorted(rows, key=lambda r: (str(r["data_tag"]), int(r["lr_size"]))))
+    return csv_path
+
+
 def main() -> None:
     if not OPTIMIZE_PY.is_file():
         raise SystemExit(f"Missing {OPTIMIZE_PY} — restore optimize.py before running benchmarks.")
@@ -335,15 +469,20 @@ def main() -> None:
     if args.optimize_extra and args.optimize_extra[0] == "--":
         args.optimize_extra = args.optimize_extra[1:]
 
-    selected = set(args.datasets) if args.datasets else {t[0] for t in PSF_DATASETS}
-    plan: list[dict] = []
-    for psf_tag, data_root, train_deg in PSF_DATASETS:
-        if psf_tag not in selected:
-            continue
-        plan.extend(build_plan_for_dataset(args, psf_tag=psf_tag, data_root=data_root, train_degradation=train_deg))
+    if args.datasets and not args.data_sources:
+        args.data_sources = list(args.datasets)
+    # Legacy names from the first benchmark script.
+    if args.data_sources:
+        legacy = {"s2_psf": "dsen2", "s2_psf_m": "psfm"}
+        args.data_sources = [legacy.get(t, t) for t in args.data_sources]
+
+    if args.matched_only:
+        plan = build_matched_plan(args)
+    else:
+        plan = build_factorial_plan(args)
 
     if not plan:
-        raise SystemExit("No benchmark runs planned (check --datasets).")
+        raise SystemExit("No benchmark runs planned (check --data-sources / --train-degradations).")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = args.output_dir or Path("single_samples") / args.dataset / str(args.sample_id) / f"benchmark_psf_{args.mode}_{ts}"
@@ -354,8 +493,8 @@ def main() -> None:
     print(f"Total runs: {len(plan)}")
     for row in plan:
         print(
-            f"  [{row['psf_benchmark']}] lr={row['lr_size']:>3} hash_max={row['hash_max_requested']:>4} "
-            f"train={row['train_lr_degradation']} data={row['data_degradation']} → {row['run_name']}"
+            f"  [data={row['data_tag']}] lr={row['lr_size']:>3} hash_max={row['hash_max_requested']:>4} "
+            f"train={row['train_lr_degradation']} synth={row['data_degradation']} → {row['run_name']}"
         )
 
     plan_path = out_dir / "plan.json"
@@ -385,6 +524,7 @@ def main() -> None:
         wall = time.perf_counter() - t0
         metrics_path = single_sample_output_dir(row["run_args"]) / "metrics.json"
         metrics = _load_metrics(metrics_path)
+        spot = _spot_from_metrics(metrics)
         iters = metrics.get("completed_iters") or 0
         train_t = metrics.get("training_time_seconds")
         sec_per_iter = (float(train_t) / float(iters)) if train_t and iters else None
@@ -397,12 +537,18 @@ def main() -> None:
                 "model_psnr": metrics.get("model_psnr"),
                 "bilinear_psnr": metrics.get("bilinear_psnr"),
                 "final_test_psnr": metrics.get("final_test_psnr"),
+                "fixed_spot": spot or None,
+                "spot_model_psnr": spot.get("model_psnr"),
+                "spot_bilinear_psnr": spot.get("bilinear_psnr"),
+                "spot_psnr_improvement": spot.get("psnr_improvement"),
+                "spot_model_ssim": spot.get("model_ssim"),
+                "spot_model_lpips": spot.get("model_lpips"),
                 "training_time_seconds": train_t,
                 "completed_iters": iters,
                 "time_per_iteration_seconds": sec_per_iter,
             }
         )
-        psnr = results[-1]["model_psnr"]
+        psnr = results[-1].get("spot_model_psnr") or results[-1]["model_psnr"]
         psnr_s = f"{psnr:.2f}" if isinstance(psnr, (int, float)) else "n/a"
         print(f"  exit={proc.returncode} psnr={psnr_s} ({wall:.1f}s)", flush=True)
 
@@ -410,7 +556,7 @@ def main() -> None:
     summary_json.write_text(json.dumps({"mode": args.mode, "results": results}, indent=2), encoding="utf-8")
 
     fieldnames = [
-        "psf_benchmark",
+        "data_tag",
         "data_degradation",
         "train_lr_degradation",
         "satburst_data_root",
@@ -419,6 +565,12 @@ def main() -> None:
         "run_name",
         "model_psnr",
         "bilinear_psnr",
+        "spot_hr_pixels",
+        "spot_model_psnr",
+        "spot_bilinear_psnr",
+        "spot_psnr_improvement",
+        "spot_model_ssim",
+        "spot_model_lpips",
         "training_time_seconds",
         "time_per_iteration_seconds",
         "wall_seconds",
@@ -430,10 +582,17 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in results:
-            writer.writerow({k: row.get(k) for k in fieldnames})
+            spot = row.get("fixed_spot") or {}
+            flat = {k: row.get(k) for k in fieldnames}
+            flat["spot_hr_pixels"] = spot.get("hr_pixels")
+            writer.writerow(flat)
+
+    spot_csv = _write_spot_lr_comparison(results, out_dir)
 
     print(f"\nWrote {summary_json}")
     print(f"Wrote {csv_path}")
+    if spot_csv is not None:
+        print(f"Wrote {spot_csv}")
     failed = [r for r in results if r["exit_code"] != 0]
     if failed:
         raise SystemExit(f"{len(failed)} run(s) failed; see {summary_json}")

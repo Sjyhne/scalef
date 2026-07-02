@@ -9,6 +9,17 @@ from models.mlp_tcnn import MLPTcnn
 from models.nir import NIR
 
 
+def get_learnable_affines(num_samples, freeze_first=True):
+    """Return per-sample learnable 2x3 affine params initialized to identity."""
+    identity = torch.tensor([[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]], dtype=torch.float32)
+    params = []
+    for i in range(num_samples):
+        params.append(
+            nn.Parameter(identity.clone(), requires_grad=(i != 0) if freeze_first else True)
+        )
+    return nn.ParameterList(params)
+
+
 def get_learnable_transforms(num_samples, coordinate_dim=2, zeros=True, freeze_first=True):
     if zeros:
         if freeze_first:
