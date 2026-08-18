@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "dataset": "MultiLOD",
+  "bbox_definition": {
+    "crs": "EPSG:4326",
+    "axis_order": [
+      "min_lon",
+      "min_lat",
+      "max_lon",
+      "max_lat"
+    ],
+    "calculation": "envelope of each AOI polygon transformed from EPSG:25833",
+    "usage": "canonical bounds for paired Norge i bilder and Sentinel-2 queries"
+  },
+  "areas": [
+    {
+      "id": "bergen_tt14544",
+      "name": "Bergen",
+      "project_id": "TT-14544",
+      "bbox_wgs84": [5.2998654, 60.3791757, 5.3432271, 60.4023913]
+    },
+    {
+      "id": "kristiansand_fg14619",
+      "name": "Kristiansand",
+      "project_id": "FG-14619",
+      "bbox_wgs84": [8.0505407, 58.1401480, 8.0773762, 58.1638157]
+    },
+    {
+      "id": "rana_tt14443",
+      "name": "Rana",
+      "project_id": "TT-14443",
+      "bbox_wgs84": [14.1811984, 66.3102686, 14.2483559, 66.3232452]
+    },
+    {
+      "id": "sandvika_fg14588",
+      "name": "Sandvika",
+      "project_id": "FG-14588",
+      "bbox_wgs84": [10.5012660, 59.8788552, 10.5354637, 59.8982013]
+    },
+    {
+      "id": "stavanger_fg14579",
+      "name": "Stavanger",
+      "project_id": "FG-14579",
+      "bbox_wgs84": [5.6960652, 58.8880778, 5.7564175, 58.8974470]
+    },
+    {
+      "id": "tromso_fg14601",
+      "name": "Tromsø",
+      "project_id": "FG-14601",
+      "bbox_wgs84": [18.9855675, 69.6393837, 19.0269766, 69.6621959]
+    },
+    {
+      "id": "trondheim_tt14313",
+      "name": "Trondheim",
+      "project_id": "TT-14313",
+      "bbox_wgs84": [11.5152143, 63.7603500, 11.5915427, 63.7761511]
+    }
+  ]
+}
