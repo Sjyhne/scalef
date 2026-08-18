@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0",
+  "dataset": {
+    "name": "MultiLOD",
+    "source_repository": "https://github.com/Sjyhne/MultiLOD",
+    "source_commit": "81676bfb7c2cfe61c0f045ffbe63f353e7ef1964"
+  },
+  "area_definition": {
+    "geometry": "area-of-interest polygon",
+    "source_crs": "EPSG:25833",
+    "calculation": "geodesic area",
+    "geographic_crs": "EPSG:4258",
+    "ellipsoid": "GRS80",
+    "units": {
+      "area_m2": "square metres",
+      "area_km2": "square kilometres"
+    }
+  },
+  "areas": [
+    {
+      "id": "bergen_tt14544",
+      "name": "Bergen",
+      "project_id": "TT-14544",
+      "source_geometry": "dataset/bergen_tt14544/bergen.json",
+      "area_m2": 2671125.580,
+      "area_km2": 2.671125580
+    },
+    {
+      "id": "kristiansand_fg14619",
+      "name": "Kristiansand",
+      "project_id": "FG-14619",
+      "source_geometry": "dataset/kristiansand_fg14619/kristiansand.json",
+      "area_m2": 3261895.500,
+      "area_km2": 3.261895500
+    },
+    {
+      "id": "rana_tt14443",
+      "name": "Rana",
+      "project_id": "TT-14443",
+      "source_geometry": "dataset/rana_tt14443/rana.json",
+      "area_m2": 2952961.140,
+      "area_km2": 2.952961140
+    },
+    {
+      "id": "sandvika_fg14588",
+      "name": "Sandvika",
+      "project_id": "FG-14588",
+      "source_geometry": "dataset/sandvika_fg14588/sandvika.json",
+      "area_m2": 2852709.883,
+      "area_km2": 2.852709883
+    },
+    {
+      "id": "stavanger_fg14579",
+      "name": "Stavanger",
+      "project_id": "FG-14579",
+      "source_geometry": "dataset/stavanger_fg14579/stavanger.json",
+      "area_m2": 2621755.087,
+      "area_km2": 2.621755087
+    },
+    {
+      "id": "tromso_fg14601",
+      "name": "Tromsø",
+      "project_id": "FG-14601",
+      "source_geometry": "dataset/tromso_fg14601/tromso.json",
+      "area_m2": 1849526.956,
+      "area_km2": 1.849526956
+    },
+    {
+      "id": "trondheim_tt14313",
+      "name": "Trondheim",
+      "project_id": "TT-14313",
+      "source_geometry": "dataset/trondheim_tt14313/trondheim.json",
+      "area_m2": 2798761.300,
+      "area_km2": 2.798761300
+    }
+  ],
+  "totals": {
+    "area_count": 7,
+    "area_m2": 19008735.447,
+    "area_km2": 19.008735447
+  }
+}
