@@ -14,7 +14,7 @@ from models.s2_psf_forward import (
 )
 
 
-def default_lr_align_args(*, lr_degradation: str = "area") -> SimpleNamespace:
+def default_lr_align_args(*, lr_degradation: str = "s2_psf") -> SimpleNamespace:
     """Minimal ``args`` namespace for ``align_prediction_hwc_to_target``."""
     sigmas = dict(DEFAULT_S2_PSF_SIGMA_M_BY_BAND)
     return SimpleNamespace(
@@ -57,7 +57,7 @@ def align_prediction_hwc_to_target(
 
     _, ht, wt, _ = target.shape
     x = pred.permute(0, 3, 1, 2).contiguous()
-    degradation = str(getattr(args, "lr_degradation", "area")).lower().strip()
+    degradation = str(getattr(args, "lr_degradation", "s2_psf")).lower().strip()
 
     if degradation == "area":
         x = F.interpolate(x, size=(ht, wt), mode="area")
@@ -78,6 +78,7 @@ def align_prediction_hwc_to_target(
             "B04": float(getattr(args, "s2_psf_sigma_b04_m", sigmas["B04"])),
             "B08": float(getattr(args, "s2_psf_sigma_b08_m", sigmas["B08"])),
         },
+        psf_sigma_scale=float(getattr(args, "psf_sigma_scale", 1.0) or 1.0),
     )
     if x.shape[2] != ht or x.shape[3] != wt:
         raise RuntimeError(

@@ -41,6 +41,7 @@ def compute_fixed_spot_metrics(
     device: torch.device,
     lpips_fn,
     location: str = "center",
+    eval_mask_hw: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """PSNR / SSIM / LPIPS on the same HR window for all LR-size runs."""
     if int(spot_hr_px) <= 0:
@@ -48,6 +49,17 @@ def compute_fixed_spot_metrics(
 
     _, _, h, w = gt_bchw.shape
     slices = center_window_slices(h, w, int(spot_hr_px))
+    if eval_mask_hw is not None:
+        from eval.masked_metrics import spot_fully_inside_mask
+
+        if not spot_fully_inside_mask(eval_mask_hw, slices):
+            return {
+                "hr_pixels": int(slices[1] - slices[0]),
+                "location": str(location),
+                "slices_hr": [int(slices[0]), int(slices[1]), int(slices[2]), int(slices[3])],
+                "skipped": True,
+                "skip_reason": "spot_not_fully_inside_eval_mask",
+            }
     pred = crop_bchw(pred_bchw, slices).cpu()
     gt = crop_bchw(gt_bchw, slices).cpu()
     bil = crop_bchw(bilinear_bchw, slices).cpu()

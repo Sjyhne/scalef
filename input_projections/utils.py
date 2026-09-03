@@ -13,7 +13,10 @@ def _make_hashgrid_kwargs(
     hash_max_resolution,
     device,
     hash_interpolation="smoothstep",
-    hash_level_sigma=0.0,
+    hash_max_resolution_h=0,
+    hash_max_resolution_w=0,
+    hash_base_resolution_h=0,
+    hash_base_resolution_w=0,
 ):
     return dict(
         input_dim=input_dim,
@@ -21,9 +24,12 @@ def _make_hashgrid_kwargs(
         n_features_per_level=hash_n_features_per_level,
         log2_hashmap_size=hash_log2_hashmap_size,
         base_resolution=hash_base_resolution,
+        base_resolution_h=hash_base_resolution_h,
+        base_resolution_w=hash_base_resolution_w,
         max_resolution=hash_max_resolution,
+        max_resolution_h=hash_max_resolution_h,
+        max_resolution_w=hash_max_resolution_w,
         interpolation=hash_interpolation,
-        level_sigma=hash_level_sigma,
         device=device,
     )
 
@@ -41,9 +47,12 @@ def get_input_projection(
     hash_log2_hashmap_size=19,
     hash_base_resolution=16,
     hash_max_resolution=2048,
+    hash_max_resolution_h=0,
+    hash_max_resolution_w=0,
     hash_tcnn_output_dtype="fp32",
     hash_interpolation="smoothstep",
-    hash_level_sigma=0.0,
+    hash_base_resolution_h=0,
+    hash_base_resolution_w=0,
 ):
     if input_projection_name is None:
         return None
@@ -52,20 +61,22 @@ def get_input_projection(
         return None
     if name == "fourier":
         return FourierProjection(input_dim=input_dim, output_dim=output_dim, scale=fourier_scale, device=device)
+    hashgrid_kwargs = _make_hashgrid_kwargs(
+        input_dim,
+        hash_n_levels,
+        hash_n_features_per_level,
+        hash_log2_hashmap_size,
+        hash_base_resolution,
+        hash_max_resolution,
+        device,
+        hash_interpolation,
+        hash_max_resolution_h,
+        hash_max_resolution_w,
+        hash_base_resolution_h,
+        hash_base_resolution_w,
+    )
     if name in {"hashgrid", "hash", "ngp_hash"}:
-        return HashGridProjection(
-            **_make_hashgrid_kwargs(
-                input_dim,
-                hash_n_levels,
-                hash_n_features_per_level,
-                hash_log2_hashmap_size,
-                hash_base_resolution,
-                hash_max_resolution,
-                device,
-                hash_interpolation,
-                hash_level_sigma,
-            )
-        )
+        return HashGridProjection(**hashgrid_kwargs)
     if name in {"hashgrid_tcnn", "hash_tcnn", "ngp_hash_tcnn"}:
         from input_projections import hashgrid_tcnn as _tcnn_mod
 
@@ -78,33 +89,11 @@ def get_input_projection(
                 UserWarning,
                 stacklevel=2,
             )
-            return HashGridProjection(
-                **_make_hashgrid_kwargs(
-                    input_dim,
-                    hash_n_levels,
-                    hash_n_features_per_level,
-                    hash_log2_hashmap_size,
-                    hash_base_resolution,
-                    hash_max_resolution,
-                    device,
-                    hash_interpolation,
-                    hash_level_sigma,
-                )
-            )
+            return HashGridProjection(**hashgrid_kwargs)
 
         from input_projections.hashgrid_tcnn import HashGridTcnn
 
-        tcnn_kwargs = _make_hashgrid_kwargs(
-            input_dim,
-            hash_n_levels,
-            hash_n_features_per_level,
-            hash_log2_hashmap_size,
-            hash_base_resolution,
-            hash_max_resolution,
-            device,
-            hash_interpolation,
-            hash_level_sigma,
-        )
+        tcnn_kwargs = dict(hashgrid_kwargs)
         tcnn_kwargs["output_dtype"] = hash_tcnn_output_dtype
         return HashGridTcnn(**tcnn_kwargs)
 

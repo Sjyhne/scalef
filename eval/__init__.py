@@ -1,1 +1,1 @@
-"""Post-training evaluation, reporting, and GNLL visualizations."""
+"""Post-training evaluation metrics and figures."""

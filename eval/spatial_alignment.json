@@ -1,0 +1,364 @@
+{
+  "version": 1,
+  "method": "hr_phase_corr + local_hr_mse_refine",
+  "notes": "Per-city residual translation between S2-bilinear (base frame) and harmonized NIB HR. Apply hr_shift_hr_px to NIB HR for evaluation only; do not shift S2 LR revisits used for training. Focus cities (except stavanger) on *_lr512; stavanger on native 295\u00d740 rectangle.",
+  "created_utc": "2026-09-01T10:00:43Z",
+  "refine_radius_hr_px": 2.0,
+  "refine_step_hr_px": 0.25,
+  "cities": {
+    "amli": {
+      "df": 4,
+      "s2_dir_name": "amli_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-02",
+      "nib_acquisition_date": "2024-08-01",
+      "valid_fraction": 0.8869490623474121,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.51
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.51
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 26.760114669799805,
+        "ssim": 0.8705287575721741,
+        "ncc": 0.1719382918086872,
+        "mse": 0.0023773314420075077
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 26.765703201293945,
+        "ssim": 0.8710302710533142,
+        "ncc": 0.17284243093341106,
+        "mse": 0.0023742739056509315
+      },
+      "delta": {
+        "psnr": 0.005588531494140625,
+        "ssim": 0.0005015134811401367,
+        "ncc": 0.0009041391247238684,
+        "mse": 3.0575363565762265e-06
+      }
+    },
+    "asker": {
+      "df": 4,
+      "s2_dir_name": "asker_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": -0.3
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": 0.3
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": 0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.29447937011719,
+        "ssim": 0.8733635544776917,
+        "ncc": 0.7753067225824433,
+        "mse": 0.0004757342560979707
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.34455871582031,
+        "ssim": 0.8748454451560974,
+        "ncc": 0.7779756995357322,
+        "mse": 0.00047027987213643104
+      },
+      "delta": {
+        "psnr": 0.050079345703125,
+        "ssim": 0.0014818906784057617,
+        "ncc": 0.0026689769532889374,
+        "mse": 5.454383961539652e-06
+      }
+    },
+    "bergen": {
+      "df": 4,
+      "s2_dir_name": "bergen_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.79,
+        "dx": 1.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.79,
+        "dx": -1.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.744293212890625,
+        "ssim": 0.853814423084259,
+        "ncc": 0.699115795262573,
+        "mse": 0.0005399864446488331
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.85669708251953,
+        "ssim": 0.8562818169593811,
+        "ncc": 0.708567831250311,
+        "mse": 0.0005261903135244098
+      },
+      "delta": {
+        "psnr": 0.11240386962890625,
+        "ssim": 0.0024673938751220703,
+        "ncc": 0.009452035987738028,
+        "mse": 1.3796131124423224e-05
+      }
+    },
+    "rana": {
+      "df": 4,
+      "s2_dir_name": "rana_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2019-07-27",
+      "nib_acquisition_date": "2019-07-25",
+      "valid_fraction": 0.9595599174499512,
+      "hr_shift_hr_px": {
+        "dy": 1.55,
+        "dx": 1.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.55,
+        "dx": -1.04
+      },
+      "phase_init_hr_px": {
+        "dy": -0.05,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.234832763671875,
+        "ssim": 0.8362717628479004,
+        "ncc": 0.7459810159329116,
+        "mse": 0.0006229374980258462
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.5875244140625,
+        "ssim": 0.8452758193016052,
+        "ncc": 0.7653815782380727,
+        "mse": 0.000574348060283106
+      },
+      "delta": {
+        "psnr": 0.352691650390625,
+        "ssim": 0.009004056453704834,
+        "ncc": 0.019400562305161184,
+        "mse": 4.85894377427402e-05
+      }
+    },
+    "tromso": {
+      "df": 4,
+      "s2_dir_name": "tromso_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2021-08-08",
+      "nib_acquisition_date": "2021-08-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 4.8,
+        "dx": 1.3599999999999999
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -4.8,
+        "dx": -1.3599999999999999
+      },
+      "phase_init_hr_px": {
+        "dy": -4.55,
+        "dx": -1.8599999999999999
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 30.01019859313965,
+        "ssim": 0.7573031783103943,
+        "ncc": 0.7680696650983242,
+        "mse": 0.0010134272097309667
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.23319625854492,
+        "ssim": 0.8107507824897766,
+        "ncc": 0.8600545988179217,
+        "mse": 0.0006074248492733727
+      },
+      "delta": {
+        "psnr": 2.2229976654052734,
+        "ssim": 0.053447604179382324,
+        "ncc": 0.09198493371959748,
+        "mse": 0.00040600236045759393
+      }
+    },
+    "trondheim": {
+      "df": 4,
+      "s2_dir_name": "trondheim_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 0.99
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.07,
+        "dx": -0.99
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.773136138916016,
+        "ssim": 0.8051185011863708,
+        "ncc": 0.746492411720664,
+        "mse": 0.0006753030052734414
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.14297866821289,
+        "ssim": 0.8140146136283875,
+        "ncc": 0.7672531192554465,
+        "mse": 0.000620174950914449
+      },
+      "delta": {
+        "psnr": 0.369842529296875,
+        "ssim": 0.008896112442016602,
+        "ncc": 0.02076070753478243,
+        "mse": 5.512805435899245e-05
+      }
+    },
+    "vennesla": {
+      "df": 4,
+      "s2_dir_name": "vennesla_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.9808416366577148,
+      "hr_shift_hr_px": {
+        "dy": 1.02,
+        "dx": 2.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.02,
+        "dx": -2.04
+      },
+      "phase_init_hr_px": {
+        "dy": -0.02,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.80670928955078,
+        "ssim": 0.8484117388725281,
+        "ncc": 0.7815586565561755,
+        "mse": 0.000534232318272431
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.792396545410156,
+        "ssim": 0.8689287304878235,
+        "ncc": 0.8266947684545228,
+        "mse": 0.00042575644126329186
+      },
+      "delta": {
+        "psnr": 0.985687255859375,
+        "ssim": 0.02051699161529541,
+        "ncc": 0.04513611189834732,
+        "mse": 0.00010847587700913916
+      }
+    },
+    "stavanger": {
+      "df": 4,
+      "s2_dir_name": "stavanger",
+      "lr_size": [
+        295,
+        40
+      ],
+      "hr_size": [
+        1180,
+        160
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-05-10",
+      "nib_acquisition_date": "2025-05-10",
+      "valid_fraction": 0.944,
+      "hr_shift_hr_px": {
+        "dy": -0.24000000022351742,
+        "dx": 0.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.24000000022351742,
+        "dx": -0.25
+      },
+      "phase_init_hr_px": {
+        "dy": -0.009999999776482582,
+        "dx": 0.0
+      },
+      "rotation_alpha_deg": 0.0010704621687767743,
+      "notes": "Thin MGRS-edge strip (295\u00d740 LR). Shift estimated on full rectangle; geometric rotation ~0. Inscribed 40\u00d740 square is less stable \u2014 do not use.",
+      "ncc_before": 0.7278596758842468,
+      "ncc_after": 0.7285348176956177
+    }
+  }
+}

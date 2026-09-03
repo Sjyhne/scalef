@@ -13,10 +13,7 @@ try:
 except ImportError:
     tcnn = None
 
-from input_projections.hashgrid_projection import (
-    compute_level_footprint_weights,
-    hash_level_resolutions,
-)
+from input_projections.hashgrid_projection import hash_level_resolutions
 
 
 def _per_level_scale(base_resolution: int, max_resolution: int, n_levels: int) -> float:
@@ -30,10 +27,6 @@ class HashGridTcnn(nn.Module):
 
     tcnn applies the half-voxel per-level offset internally (``scale * x + 0.5``)
     for both linear and smoothstep modes.
-
-    ``level_sigma > 0`` enables Zip-NeRF style footprint downweighting; weights
-    are applied to the concatenated per-level output features (equivalent to
-    scaling inside the encoding).
     """
 
     def __init__(
@@ -43,9 +36,12 @@ class HashGridTcnn(nn.Module):
         n_features_per_level=2,
         log2_hashmap_size=19,
         base_resolution=16,
+        base_resolution_h=0,
+        base_resolution_w=0,
         max_resolution=2048,
+        max_resolution_h=0,
+        max_resolution_w=0,
         interpolation="smoothstep",
-        level_sigma=0.0,
         output_dtype="fp32",
         device=None,
     ):
@@ -76,14 +72,39 @@ class HashGridTcnn(nn.Module):
         else:
             raise ValueError(f"interpolation must be 'smoothstep' or 'linear', got {interpolation!r}")
 
-        per_level_scale = _per_level_scale(int(base_resolution), int(max_resolution), self.n_levels)
+        # tcnn's grid is isotropic over the unit square, but the resolution
+        # actually realised along an axis is (level resolution x the extent of
+        # coordinates fed along that axis). Building the ladder from the long
+        # axis and squeezing the short axis into [0, short/long] therefore
+        # reproduces a rectangular grid with square cells, with no tcnn change.
+        # Squeezing (rather than stretching the long axis past 1) matters: the
+        # coarse levels are stored densely and indexed directly, so inputs above
+        # 1 would run off the end of the level.
+        max_h = int(max_resolution_h) or int(max_resolution)
+        max_w = int(max_resolution_w) or int(max_resolution)
+        long_max = max(max_h, max_w)
+        base_h = int(base_resolution_h) or int(base_resolution) or max(8, max_h // 4)
+        base_w = int(base_resolution_w) or int(base_resolution) or max(8, max_w // 4)
+        long_base = base_w if max_w >= max_h else base_h
+        if long_base >= long_max:
+            long_base = max(8, long_max // 4)
+
+        # x is the width axis and y the height axis, matching HashGridProjection.
+        self.register_buffer(
+            "coord_scale",
+            torch.tensor([max_w / long_max, max_h / long_max], dtype=torch.float32),
+            persistent=False,
+        )
+        self.rectangular = max_h != max_w
+
+        per_level_scale = _per_level_scale(long_base, long_max, self.n_levels)
 
         encoding_config = {
             "otype": "HashGrid",
             "n_levels": self.n_levels,
             "n_features_per_level": self.n_features_per_level,
             "log2_hashmap_size": int(log2_hashmap_size),
-            "base_resolution": int(base_resolution),
+            "base_resolution": int(long_base),
             "per_level_scale": per_level_scale,
             "interpolation": tcnn_interp,
         }
@@ -102,18 +123,13 @@ class HashGridTcnn(nn.Module):
                 encoding_config.pop("interpolation", None)
                 self._encoding = tcnn.Encoding(2, encoding_config)
 
-        self.level_sigma = float(level_sigma)
-        self.resolutions = hash_level_resolutions(
-            int(base_resolution), int(max_resolution), self.n_levels
-        )
-        weights = compute_level_footprint_weights(self.resolutions, self.level_sigma)
-        if weights is not None:
-            # Expand per-level weights to the concatenated feature layout.
-            self.register_buffer(
-                "level_weights", weights.repeat_interleave(self.n_features_per_level)
-            )
-        else:
-            self.level_weights = None
+        long_res = hash_level_resolutions(long_base, long_max, self.n_levels)
+        # Reported resolutions use the geometric-mean cell size, folding in the
+        # short-axis squeeze the same way HashGridProjection does for rect grids.
+        aspect_geo = math.sqrt((max_h / long_max) * (max_w / long_max))
+        self.resolutions = [max(1, int(r * aspect_geo)) for r in long_res]
+        self.resolutions_w = [max(1, int(r * max_w / long_max)) for r in long_res]
+        self.resolutions_h = [max(1, int(r * max_h / long_max)) for r in long_res]
 
         if device is not None:
             self.to(device)
@@ -121,12 +137,12 @@ class HashGridTcnn(nn.Module):
     def forward(self, x, fs=None, progress=None):
         del fs, progress
         orig_shape = x.shape[:-1]
-        x = x.reshape(-1, 2).contiguous()
+        x = x.reshape(-1, 2)
         x = x.clamp(0.0, 1.0 - 1e-6)
-        y = self._encoding(x)
+        if self.rectangular:
+            x = x * self.coord_scale.to(x.dtype)
+        y = self._encoding(x.contiguous())
         if self.output_dtype == "fp32" and y.dtype != torch.float32:
             y = y.float()
-        if self.level_weights is not None:
-            y = y * self.level_weights.to(y.dtype)
         return y.reshape(*orig_shape, self.output_dim)
 

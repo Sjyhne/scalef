@@ -16,17 +16,35 @@ from datetime import datetime
 
 from data import get_dataset, resolve_dataset_device
 from utils import bilinear_resize_torch, align_output_to_target, get_valid_mask
-from losses import BasicLosses
+from losses import BasicLosses, laplace_nll_loss, resolve_recon_criterion
 from models.utils import get_decoder
 from input_projections.utils import get_input_projection
 from models.inr import INR
 from models.nir import NIR
 from optimizers import build_optimizer
 from eval.spot_metrics import DEFAULT_SPOT_HR_PX, compute_fixed_spot_metrics
-from eval.visualize import (
-    create_spot_summary_visualization,
-    create_sr_sample_grid,
-    save_eval_visualizations,
+from eval.masked_metrics import compute_masked_image_metrics
+from eval.hr_render import render_hr_rgb_tiled, resolve_hr_render_tile
+from eval.visualize import save_eval_visualizations
+from eval.export_geotiff import export_qgis_layers
+from eval.lr_holdout import (
+    EarlyStopState,
+    compute_holdout_val_loss,
+    elementwise_recon,
+    gather_train_masks,
+    init_early_stop_state,
+    masked_mean,
+    resolve_early_stop_score,
+    default_early_stop_regression,
+)
+from models.training_schedule import effective_lr_align_args
+from models.lr_tile_sampler import (
+    build_cross_frame_tile_sampler,
+    build_lr_tile_sampler,
+    raw_tiles_per_step,
+    resolve_lr_tile_mix,
+    stack_cross_frame_tiles,
+    stack_lr_hr_tiles,
 )
 
 import time
@@ -37,6 +55,63 @@ from torchmetrics.functional.image import structural_similarity_index_measure as
 
 LOG_POSTFIX_INTERVAL = 20
 _GNLL_RECON_CRITERION = nn.GaussianNLLLoss()
+_GNLL_RECON_NONE = nn.GaussianNLLLoss(reduction="none")
+
+
+def _reset_peak_memory(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.empty_cache()
+
+
+def _peak_memory_gb(device: torch.device) -> float | None:
+    if device.type != "cuda":
+        return None
+    return float(torch.cuda.max_memory_allocated(device) / (1024**3))
+
+
+def _uses_hetero_loss(args) -> bool:
+    return bool(getattr(args, "use_gnll", False) or getattr(args, "use_laplace_nll", False))
+
+
+def _hetero_output_dim(args) -> int:
+    if not _uses_hetero_loss(args) or getattr(args, "use_separate_ud", False):
+        return 3
+    if str(getattr(args, "hetero_scale", "pixel")).lower() in ("frame", "region"):
+        return 3
+    return 3 + int(args.num_samples) * 3
+
+
+def _hetero_recon_criterion(model, *, elementwise: bool = False):
+    if getattr(model, "hetero_loss_type", "gaussian") == "laplace":
+        if elementwise:
+            return lambda pred, target, scale: laplace_nll_loss(
+                pred, target, scale, full=True
+            )
+        return laplace_nll_loss
+    return _GNLL_RECON_NONE if elementwise else _GNLL_RECON_CRITERION
+
+
+def init_hetero_region_scales(model, train_data, device: torch.device) -> None:
+    """Eagerly register region log-scales before the optimizer is built."""
+    if not getattr(model, "use_gnll", False):
+        return
+    if getattr(model, "hetero_scale", "pixel") != "region":
+        return
+    if getattr(model, "log_scales", None) is not None:
+        return
+    sample = train_data[0]
+    lr = sample["lr_target"]
+    if not isinstance(lr, torch.Tensor):
+        lr = torch.as_tensor(lr)
+    if lr.ndim == 3 and lr.shape[-1] in (1, 3):
+        height, width = int(lr.shape[0]), int(lr.shape[1])
+    elif lr.ndim == 4:
+        height, width = int(lr.shape[1]), int(lr.shape[2])
+    else:
+        raise ValueError(f"Unexpected lr_target shape for region hetero init: {tuple(lr.shape)}")
+    dtype = next(model.parameters()).dtype
+    model._ensure_region_log_scales(height, width, device, dtype)
 _LPIPS_BY_DEVICE: dict[str, lpips.LPIPS] = {}
 
 
@@ -112,47 +187,151 @@ def _lr_rgb_hwc_unstandardized(train_data) -> np.ndarray:
     return np.clip(lr_hwc, 0.0, 1.0)
 
 
-def _forward_hr_output(model, hr_coords, hr_image, sample_id, device, eval_autocast_dtype=None):
-    if eval_autocast_dtype is not None:
-        with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
-            if model.use_gnll:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-            elif isinstance(model, INR):
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-            elif isinstance(model, NIR):
+def _hr_spatial_hw(hr_coords: torch.Tensor) -> tuple[int, int]:
+    if hr_coords.dim() == 4:
+        return int(hr_coords.shape[1]), int(hr_coords.shape[2])
+    if hr_coords.dim() == 3:
+        return int(hr_coords.shape[0]), int(hr_coords.shape[1])
+    raise ValueError(f"Unexpected hr_coords shape {tuple(hr_coords.shape)}")
+
+
+def _forward_hr_output(
+    model,
+    hr_coords,
+    hr_image,
+    sample_id,
+    device,
+    eval_autocast_dtype=None,
+    hr_render_tile: int = 0,
+    **fwd_kwargs,
+):
+    """Full-frame HR decode; auto-tiles when the grid exceeds ~2048² (INR path)."""
+    kwargs = dict(fwd_kwargs)
+    # NIR needs full-frame lr_frames — keep single-shot path.
+    if isinstance(model, NIR):
+        if eval_autocast_dtype is not None and device.type == "cuda":
+            with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
                 output, _ = model(
-                    hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image
+                    hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image, **kwargs
                 )
-                output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
-            else:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-    elif model.use_gnll:
-        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-    elif isinstance(model, INR):
-        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-    elif isinstance(model, NIR):
-        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image)
-        output = output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
+        else:
+            output, _ = model(
+                hr_coords, sample_id, scale_factor=1, training=False, lr_frames=hr_image, **kwargs
+            )
+        return output.reshape(hr_image.shape[1], hr_image.shape[2], 3).unsqueeze(0)
+
+    h, w = _hr_spatial_hw(hr_coords)
+    tile = resolve_hr_render_tile(h, w, hr_render_tile)
+    if tile < max(h, w):
+        print(f"HR render tiled at {tile}×{tile} over {h}×{w}", flush=True)
+        return render_hr_rgb_tiled(
+            model,
+            hr_coords,
+            sample_id,
+            device=device,
+            tile=tile,
+            eval_autocast_dtype=eval_autocast_dtype,
+            **kwargs,
+        )
+
+    if eval_autocast_dtype is not None and device.type == "cuda":
+        with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
+            output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, **kwargs)
     else:
-        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+        output, _ = model(hr_coords, sample_id, scale_factor=1, training=False, **kwargs)
     return output
 
 
-def eval_hr_metrics(model, test_loader, device, eval_autocast_dtype=None) -> dict:
+def _get_hr_eval_mask(dataset) -> torch.Tensor | None:
+    if not getattr(dataset, "use_masked_eval", False):
+        return None
+    getter = getattr(dataset, "get_hr_eval_mask", None)
+    if getter is None:
+        return None
+    return getter()
+
+
+def _compute_full_frame_metrics(
+    pred_tensor: torch.Tensor,
+    gt_tensor: torch.Tensor,
+    bilinear_tensor: torch.Tensor,
+    device: torch.device,
+    lpips_fn: lpips.LPIPS,
+    eval_mask_hw: torch.Tensor | None = None,
+) -> dict:
+    if eval_mask_hw is not None:
+        return compute_masked_image_metrics(
+            pred_tensor,
+            gt_tensor,
+            bilinear_tensor,
+            eval_mask_hw.to(device),
+            device=device,
+            lpips_fn=lpips_fn,
+        )
+
+    # Full-frame PSNR/MSE/MAE; SSIM/LPIPS center-cropped when huge.
+    from eval.masked_metrics import _center_crop_bchw
+
+    pred_cpu = pred_tensor.detach().cpu()
+    gt_cpu = gt_tensor.detach().cpu()
+    bil_cpu = bilinear_tensor.detach().cpu()
+    model_psnr = peak_signal_noise_ratio(pred_cpu, gt_cpu, data_range=1.0).item()
+    bilinear_psnr = peak_signal_noise_ratio(bil_cpu, gt_cpu, data_range=1.0).item()
+    model_mse = F.mse_loss(pred_tensor, gt_tensor).item()
+    bilinear_mse = F.mse_loss(bilinear_tensor, gt_tensor).item()
+    pred_p, gt_p, bil_p = _center_crop_bchw(
+        pred_tensor, gt_tensor, bilinear_tensor, max_side=2048
+    )
+    model_ssim = ssim(pred_p.detach().cpu(), gt_p.detach().cpu(), data_range=1.0).item()
+    bilinear_ssim = ssim(bil_p.detach().cpu(), gt_p.detach().cpu(), data_range=1.0).item()
+    model_lpips = lpips_fn((pred_p * 2 - 1), (gt_p * 2 - 1)).item()
+    bilinear_lpips = lpips_fn((bil_p * 2 - 1), (gt_p * 2 - 1)).item()
+    return {
+        "masked": False,
+        "valid_fraction": 1.0,
+        "test_loss": model_mse,
+        "test_psnr": model_psnr,
+        "model_psnr": model_psnr,
+        "bilinear_psnr": bilinear_psnr,
+        "model_ssim": model_ssim,
+        "bilinear_ssim": bilinear_ssim,
+        "model_lpips": model_lpips,
+        "bilinear_lpips": bilinear_lpips,
+        "model_mse": model_mse,
+        "bilinear_mse": bilinear_mse,
+        "model_mae": F.l1_loss(pred_tensor, gt_tensor).item(),
+        "bilinear_mae": F.l1_loss(bilinear_tensor, gt_tensor).item(),
+    }
+
+
+def eval_hr_metrics(
+    model,
+    test_loader,
+    device,
+    eval_autocast_dtype=None,
+    args=None,
+    iteration: int | None = None,
+) -> dict:
     """Full-frame HR metrics vs GT (and bilinear baseline) for periodic eval."""
     model.eval()
+    fwd_kwargs = _step_schedule_kwargs(args, iteration) if args is not None and iteration else {}
+    hr_tile = int(getattr(args, "hr_render_tile", 0) or 0) if args is not None else 0
     with torch.no_grad():
         hr_coords = test_loader.get_hr_coordinates().unsqueeze(0).to(device)
         hr_image = test_loader.get_original_hr().unsqueeze(0).to(device)
         sample_id = torch.tensor([0]).to(device)
 
         output = _forward_hr_output(
-            model, hr_coords, hr_image, sample_id, device, eval_autocast_dtype
+            model,
+            hr_coords,
+            hr_image,
+            sample_id,
+            device,
+            eval_autocast_dtype,
+            hr_render_tile=hr_tile,
+            **fwd_kwargs,
         )
         output = output * test_loader.get_lr_std(0).to(device) + test_loader.get_lr_mean(0).to(device)
-
-        test_loss = F.mse_loss(output, hr_image).item()
-        test_psnr = (-10 * torch.log10(torch.tensor(test_loss))).item()
 
         pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
         if pred_tensor.shape[-1] == 3:
@@ -171,39 +350,127 @@ def eval_hr_metrics(model, test_loader, device, eval_autocast_dtype=None) -> dic
             .to(device)
         )
 
-        pred_cpu = pred_tensor.detach().cpu()
-        gt_cpu = gt_tensor.detach().cpu()
-        bil_cpu = bilinear_tensor.detach().cpu()
-
-        model_psnr = peak_signal_noise_ratio(pred_cpu, gt_cpu, data_range=1.0).item()
-        bilinear_psnr = peak_signal_noise_ratio(bil_cpu, gt_cpu, data_range=1.0).item()
-        model_ssim = ssim(pred_cpu, gt_cpu, data_range=1.0).item()
-        bilinear_ssim = ssim(bil_cpu, gt_cpu, data_range=1.0).item()
-
+        eval_mask_hw = _get_hr_eval_mask(test_loader)
         lpips_fn = get_lpips_model(device)
-        model_lpips = lpips_fn((pred_tensor * 2 - 1), (gt_tensor * 2 - 1)).item()
-        bilinear_lpips = lpips_fn((bilinear_tensor * 2 - 1), (gt_tensor * 2 - 1)).item()
+        metrics = _compute_full_frame_metrics(
+            pred_tensor, gt_tensor, bilinear_tensor, device, lpips_fn, eval_mask_hw
+        )
 
-    return {
-        "test_loss": test_loss,
-        "test_psnr": test_psnr,
-        "model_psnr": model_psnr,
-        "bilinear_psnr": bilinear_psnr,
-        "model_ssim": model_ssim,
-        "bilinear_ssim": bilinear_ssim,
-        "model_lpips": model_lpips,
-        "bilinear_lpips": bilinear_lpips,
-    }
+    return metrics
 
 
-def _format_periodic_eval_line(iteration: int, scalars: dict, metrics: dict) -> str:
-    return (
-        f"\nIter {iteration}: Train Loss: {scalars['total_loss']:.6f}, "
-        f"Test Loss: {metrics['test_loss']:.6f}, "
-        f"PSNR: {metrics['test_psnr']:.2f} dB (bil {metrics['bilinear_psnr']:.2f}), "
-        f"SSIM: {metrics['model_ssim']:.4f} (bil {metrics['bilinear_ssim']:.4f}), "
-        f"LPIPS: {metrics['model_lpips']:.4f} (bil {metrics['bilinear_lpips']:.4f})"
+def _format_periodic_eval_line(
+    iteration: int,
+    scalars: dict,
+    metrics: dict | None = None,
+    *,
+    val_loss: float | None = None,
+) -> str:
+    parts = [f"\nIter {iteration}: Train Loss: {scalars['total_loss']:.6f}"]
+    if val_loss is not None:
+        parts.append(f"Val(holdout): {val_loss:.6f}")
+    if metrics is not None:
+        parts.append(
+            f"Test Loss: {metrics['test_loss']:.6f}, "
+            f"PSNR: {metrics['test_psnr']:.2f} dB (bil {metrics['bilinear_psnr']:.2f}), "
+            f"SSIM: {metrics['model_ssim']:.4f} (bil {metrics['bilinear_ssim']:.4f}), "
+            f"LPIPS: {metrics['model_lpips']:.4f} (bil {metrics['bilinear_lpips']:.4f})"
+        )
+    return ", ".join(parts)
+
+
+def _step_schedule_kwargs(args, iteration: int) -> dict:
+    return {"lr_align_args": effective_lr_align_args(args, iteration)}
+
+
+def _final_schedule_kwargs(args, iteration: int) -> dict:
+    del iteration
+    return {"lr_align_args": args}
+
+
+def _resolve_early_stop_max_regression(args) -> float | None:
+    raw = float(getattr(args, "early_stop_max_regression", -1.0) or -1.0)
+    if raw >= 0.0:
+        return raw
+    metric = str(getattr(args, "early_stop_metric", "lpips") or "lpips")
+    return default_early_stop_regression(metric)
+
+
+def _skip_periodic_hr_eval(args) -> bool:
+    """Skip full HR-vs-GT during training (LPIPS/PSNR/MAE). Final eval still runs."""
+    if bool(getattr(args, "skip_eval", False)):
+        return True
+    metric = str(getattr(args, "early_stop_metric", "lpips") or "lpips").lower().strip()
+    return metric == "holdout_mse"
+
+
+def _holdout_val_interval(args) -> int:
+    """How often to score held-out LR pixels (defaults to eval_every, min 1)."""
+    every = int(getattr(args, "eval_every", 100) or 0)
+    return max(1, every) if every > 0 else 100
+
+
+def _run_holdout_val_step(
+    *,
+    model,
+    dataset,
+    holdout_state: EarlyStopState,
+    args,
+    device: torch.device,
+    iteration: int,
+    scalars: dict,
+    skip_hr_eval: bool,
+) -> tuple[float, dict | None, bool]:
+    """Compute holdout val, optional HR metrics; return (val_loss, hr_metrics, should_stop)."""
+    val_loss = compute_holdout_val_loss(
+        model,
+        dataset,
+        holdout_state,
+        args,
+        device,
+        step_kwargs=_step_schedule_kwargs(args, iteration),
     )
+    hr_metrics = None
+    if not skip_hr_eval:
+        eval_autocast_dtype = get_eval_autocast_dtype(
+            getattr(args, "eval_mixed_precision", "none"), device
+        )
+        hr_metrics = eval_hr_metrics(
+            model, dataset, device, eval_autocast_dtype, args=args, iteration=iteration
+        )
+
+    metric = str(getattr(args, "early_stop_metric", "lpips") or "lpips").lower().strip()
+    resolved = resolve_early_stop_score(metric, holdout_mse=val_loss, hr_metrics=hr_metrics)
+    if resolved is None and metric != "holdout_mse":
+        print(
+            f"WARN: early_stop_metric={metric} needs HR eval; falling back to holdout_mse."
+        )
+        resolved = resolve_early_stop_score("holdout_mse", holdout_mse=val_loss, hr_metrics=None)
+    stop_metric, stop_score = resolved if resolved is not None else ("holdout_mse", val_loss)
+
+    should_stop = holdout_state.observe(
+        iteration,
+        stop_score,
+        model,
+        holdout_mse=val_loss,
+    )
+    print(
+        _format_periodic_eval_line(
+            iteration, scalars, hr_metrics, val_loss=val_loss
+        )
+        + (
+            f", stop({stop_metric})={stop_score:.6f}"
+            if stop_metric == "holdout_mse"
+            else f", stop({stop_metric})={stop_score:.4f}"
+        )
+    )
+    if should_stop:
+        print(
+            f"Early stop at iter {iteration}: {stop_metric} stalled "
+            f"(best {holdout_state.best_score:.6f} @ {holdout_state.best_iter}, "
+            f"patience={holdout_state.patience})"
+        )
+    return val_loss, hr_metrics, should_stop
 
 
 def _maybe_fixed_spot_metrics(
@@ -213,10 +480,12 @@ def _maybe_fixed_spot_metrics(
     device: torch.device,
     lpips_fn: lpips.LPIPS,
     args,
+    dataset=None,
 ) -> dict:
     spot_hr_px = int(getattr(args, "eval_spot_hr_px", DEFAULT_SPOT_HR_PX) or 0)
     if spot_hr_px <= 0:
         return {}
+    eval_mask_hw = _get_hr_eval_mask(dataset) if dataset is not None else None
     return compute_fixed_spot_metrics(
         pred_aligned,
         gt_tensor,
@@ -224,33 +493,53 @@ def _maybe_fixed_spot_metrics(
         spot_hr_px=spot_hr_px,
         device=device,
         lpips_fn=lpips_fn,
+        eval_mask_hw=eval_mask_hw,
     )
 
 
-def satburst_scene_dir(args) -> str:
-    root = getattr(args, "satburst_data_root", None) or "data"
-    root = str(root).rstrip("/")
-    lr_size = int(getattr(args, "lr_size", 0) or 0)
-    if lr_size > 0:
-        sub = f"scale_{int(args.df)}_lr{lr_size}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
-    else:
-        sub = f"scale_{int(args.df)}_shift_{float(args.lr_shift):.1f}px_aug_{args.aug}"
-    return f"{root}/{args.sample_id}/{sub}"
+def resolve_hash_resolutions(args) -> tuple[int, int, int, int]:
+    """Return (base_h, max_h, base_w, max_w) for the hashgrid.
 
-
-def resolve_hash_resolutions(args) -> tuple[int, int]:
+    If per-axis overrides are given they take priority. Otherwise falls back to
+    the isotropic --hash_max_resolution, then to the dataset LR shape, then to 48.
+    """
+    lr_h = int(getattr(args, "lr_height", 0) or 0)
+    lr_w = int(getattr(args, "lr_width", 0) or 0)
     lr = int(getattr(args, "lr_size", 0) or 0)
+    # Use lr_size as fallback if dataset shape not yet known
+    if lr_h <= 0:
+        lr_h = lr
+    if lr_w <= 0:
+        lr_w = lr
+
     explicit_max = int(getattr(args, "hash_max_resolution", 0) or 0)
+    explicit_max_h = int(getattr(args, "hash_max_resolution_h", 0) or 0)
+    explicit_max_w = int(getattr(args, "hash_max_resolution_w", 0) or 0)
+
+    fallback = explicit_max if explicit_max > 0 else 48
+    max_h = explicit_max_h if explicit_max_h > 0 else (lr_h if lr_h > 0 else fallback)
+    max_w = explicit_max_w if explicit_max_w > 0 else (lr_w if lr_w > 0 else fallback)
+
+    # Finest level defaults to the LR grid; >1 lets the encoder represent
+    # detail above LR Nyquist (mult=scale_factor puts the finest level at HR).
+    mult = float(getattr(args, "hash_max_resolution_mult", 1.0) or 1.0)
+    if mult > 0 and mult != 1.0:
+        max_h = max(8, int(round(max_h * mult)))
+        max_w = max(8, int(round(max_w * mult)))
+
     explicit_base = int(getattr(args, "hash_base_resolution", 0) or 0)
-    hash_max = explicit_max if explicit_max > 0 else (lr if lr > 0 else 48)
-    hash_base = explicit_base if explicit_base > 0 else max(8, hash_max // 4)
-    if hash_base >= hash_max:
-        hash_base = max(8, hash_max // 4)
-    return hash_base, hash_max
+    base_h = explicit_base if explicit_base > 0 else max(8, max_h // 4)
+    base_w = explicit_base if explicit_base > 0 else max(8, max_w // 4)
+    if base_h >= max_h:
+        base_h = max(8, max_h // 4)
+    if base_w >= max_w:
+        base_w = max(8, max_w // 4)
+    return base_h, max_h, base_w, max_w
 
 
 def build_projection_and_decoder(args, device, *, output_dim: int = 3):
-    hash_base, hash_max = resolve_hash_resolutions(args)
+    base_h, max_h, base_w, max_w = resolve_hash_resolutions(args)
+    rectangular = (max_h != max_w)
     input_projection = get_input_projection(
         args.input_projection,
         2,
@@ -260,20 +549,14 @@ def build_projection_and_decoder(args, device, *, output_dim: int = 3):
         hash_n_levels=int(getattr(args, "hash_n_levels", 16)),
         hash_n_features_per_level=int(getattr(args, "hash_n_features_per_level", 2)),
         hash_log2_hashmap_size=int(getattr(args, "hash_log2_hashmap_size", 19)),
-        hash_base_resolution=hash_base,
-        hash_max_resolution=hash_max,
+        hash_base_resolution=base_h,
+        hash_base_resolution_h=base_h if rectangular else 0,
+        hash_base_resolution_w=base_w if rectangular else 0,
+        hash_max_resolution=max(max_h, max_w),
+        hash_max_resolution_h=max_h if rectangular else 0,
+        hash_max_resolution_w=max_w if rectangular else 0,
         hash_interpolation=str(getattr(args, "hash_interpolation", "smoothstep")),
-        hash_level_sigma=float(getattr(args, "hash_level_sigma", 0.0) or 0.0),
     )
-    if getattr(input_projection, "level_weights", None) is not None:
-        from input_projections.hashgrid_projection import compute_level_footprint_weights
-
-        res = [int(r) for r in input_projection.resolutions]
-        per_level = compute_level_footprint_weights(res, input_projection.level_sigma)
-        print(
-            f"Hash level footprint weights (sigma={input_projection.level_sigma:g}): "
-            + ", ".join(f"N={r}:{float(v):.3f}" for r, v in zip(res, per_level))
-        )
     if input_projection is None:
         decoder_in = 2
     elif hasattr(input_projection, "projection_output_dim"):
@@ -301,8 +584,11 @@ def build_model(args, input_projection, decoder, device):
         decoder,
         args.num_samples,
         use_gnll=bool(getattr(args, "use_gnll", False)),
+        use_laplace_nll=bool(getattr(args, "use_laplace_nll", False)),
+        hetero_scale=str(getattr(args, "hetero_scale", "pixel")),
+        hetero_region_size=int(getattr(args, "hetero_region_size", 4)),
     ).to(device)
-    model.lr_degradation = str(getattr(args, "lr_degradation", "area"))
+    model.lr_degradation = str(getattr(args, "lr_degradation", "s2_psf"))
     return model
 
 
@@ -319,42 +605,91 @@ def get_eval_autocast_dtype(eval_mixed_precision, device):
     return None
 
 
-def train_one_iteration(
-    model,
-    optimizer,
-    train_sample,
-    device,
-    args,
-    variance_reg=0.0,
-    variance_smooth_reg=0.0,
-):
-    model.train()
+def build_grad_scaler(args, device):
+    """Loss scaling for the fp16 tcnn decoder, or None to disable.
 
-    recon_criterion = BasicLosses.mse_loss
+    Training is nominally fp32, but tcnn's kernels compute in fp16 internally
+    where torch's autocast machinery never sees them. With a mean-reduced loss
+    dL/dout falls as 1/pixels-per-step, so past a few million HR rows per step
+    it underflows fp16 and the decoder stops receiving gradient entirely.
+    """
+    mode = str(getattr(args, "grad_scaler", "auto") or "auto").lower()
+    if device.type != "cuda" or mode in {"off", "none", "false", "0"}:
+        return None
+    init_scale = float(getattr(args, "grad_scaler_init_scale", 0.0) or 2.0**15)
+    return torch.amp.GradScaler("cuda", init_scale=init_scale)
+
+
+def resolve_grad_accum_groups(args, batch: int) -> int:
+    """How many micro-batches to split a fused tile batch into.
+
+    Full coverage at LR2048 needs k=16 tiles of 512, which is 33.5M HR query
+    rows in one step and OOMs inside tinycudann's allocator. Splitting the
+    batch keeps peak memory at the k-per-group level while still taking one
+    optimizer step over the whole batch.
+    """
+    requested = int(getattr(args, "grad_accum", 1) or 1)
+    if requested <= 1 or batch <= 1:
+        return 1
+    groups = min(requested, batch)
+    while groups > 1 and batch % groups:
+        groups -= 1
+    return max(1, groups)
+
+
+def _split_tile_batch(groups: int, coords, lr_target, sample_id, train_mask,
+                      gt_dx, gt_dy):
+    """Yield (coords, lr_target, sample_id, mask, gt_dx, gt_dy) micro-batches."""
+    if groups <= 1:
+        yield coords, lr_target, sample_id, train_mask, gt_dx, gt_dy
+        return
+    per = coords.shape[0] // groups
+    for start in range(0, coords.shape[0], per):
+        stop = start + per
+        yield (
+            coords[start:stop],
+            lr_target[start:stop],
+            sample_id[start:stop],
+            None if train_mask is None else train_mask[start:stop],
+            gt_dx[start:stop],
+            gt_dy[start:stop],
+        )
+
+
+def build_train_dataloader(train_data, args):
+    batch_size = max(1, int(getattr(args, "batch_size", 1) or 1))
+    return DataLoader(train_data, batch_size=batch_size, shuffle=False)
+
+
+def _train_forward_losses(
+    model,
+    coords,
+    lr_target,
+    sample_id,
+    train_mask,
+    gt_dx,
+    gt_dy,
+    full_lr_hw: tuple[int, int],
+    args,
+    model_kwargs: dict,
+    variance_reg: float,
+    variance_smooth_reg: float,
+):
     use_gnll_loss = model.use_gnll
     if use_gnll_loss:
-        recon_criterion = _GNLL_RECON_CRITERION
-
-    input = _as_device_tensor(train_sample["input"], device)
-    lr_target = _as_device_tensor(train_sample["lr_target"], device)
-    sample_id = _as_device_tensor(train_sample["sample_id"], device)
-    if "shifts" in train_sample and "dx_percent" in train_sample["shifts"]:
-        gt_dx = _as_device_tensor(train_sample["shifts"]["dx_percent"], device)
-        gt_dy = _as_device_tensor(train_sample["shifts"]["dy_percent"], device)
-    else:
-        gt_dx = torch.zeros(lr_target.shape[0], device=device)
-        gt_dy = torch.zeros(lr_target.shape[0], device=device)
-
-    optimizer.zero_grad()
-
-    if use_gnll_loss:
         output, pred_shifts, pred_variance = model(
-            input, sample_id, lr_frames=lr_target, lr_align_args=args
+            coords, sample_id, lr_frames=lr_target, **model_kwargs
         )
-        recon_loss = recon_criterion(output, lr_target, pred_variance)
-        
-        variance_reg_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
-        variance_smooth_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
+        if train_mask is not None:
+            elem = _hetero_recon_criterion(model, elementwise=True)(
+                output, lr_target, pred_variance
+            )
+            recon_loss = masked_mean(elem, train_mask)
+        else:
+            recon_loss = _hetero_recon_criterion(model)(output, lr_target, pred_variance)
+
+        variance_reg_loss = torch.zeros((), device=recon_loss.device, dtype=recon_loss.dtype)
+        variance_smooth_loss = torch.zeros((), device=recon_loss.device, dtype=recon_loss.dtype)
         if variance_reg > 0.0 or variance_smooth_reg > 0.0:
             if hasattr(model, 'use_separate_ud') and model.use_separate_ud and hasattr(model, 'variances'):
                 idx = sample_id.reshape(-1).long()
@@ -368,27 +703,41 @@ def train_one_iteration(
                         variance_smooth_loss = variance_smooth_reg * (
                             torch.mean(h_diff ** 2) + torch.mean(v_diff ** 2)
                         )
+            elif hasattr(model, "log_scales") and variance_reg > 0.0:
+                variance_reg_loss = variance_reg * torch.mean(model.log_scales ** 2)
     else:
         output, pred_shifts = model(
-            input, sample_id, lr_frames=lr_target, lr_align_args=args
+            coords, sample_id, lr_frames=lr_target, **model_kwargs
         )
-        recon_loss = recon_criterion(output, lr_target)
-        variance_reg_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
-        variance_smooth_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
+        if train_mask is not None:
+            elem = elementwise_recon(
+                getattr(args, "recon_loss", "mse"),
+                output,
+                lr_target,
+                charbonnier_eps=float(getattr(args, "charbonnier_eps", 1e-3)),
+                huber_delta=float(getattr(args, "huber_delta", 0.05)),
+            )
+            recon_loss = masked_mean(elem, train_mask)
+        else:
+            recon_criterion = resolve_recon_criterion(
+                getattr(args, "recon_loss", "mse"),
+                charbonnier_eps=float(getattr(args, "charbonnier_eps", 1e-3)),
+                huber_delta=float(getattr(args, "huber_delta", 0.05)),
+            )
+            recon_loss = recon_criterion(output, lr_target)
+        variance_reg_loss = torch.zeros((), device=recon_loss.device, dtype=recon_loss.dtype)
+        variance_smooth_loss = torch.zeros((), device=recon_loss.device, dtype=recon_loss.dtype)
 
     if isinstance(model, INR):
         pred_dx, pred_dy = pred_shifts
-        lr_h, lr_w = lr_target.shape[1:3]
+        lr_h, lr_w = full_lr_hw
         pred_dx_percent = pred_dx / lr_w
         pred_dy_percent = pred_dy / lr_h
         trans_loss = torch.mean(torch.sqrt((pred_dx_percent - gt_dx)**2 + (pred_dy_percent - gt_dy)**2))
     else:
-        trans_loss = torch.zeros((), device=device, dtype=recon_loss.dtype)
+        trans_loss = torch.zeros((), device=recon_loss.device, dtype=recon_loss.dtype)
 
     total_loss = recon_loss + variance_reg_loss + variance_smooth_loss
-    total_loss.backward()
-    optimizer.step()
-    
     return {
         'recon_loss': recon_loss,
         'trans_loss': trans_loss,
@@ -398,8 +747,114 @@ def train_one_iteration(
     }
 
 
-def test_one_epoch(model, test_loader, device, eval_autocast_dtype=None):
-    metrics = eval_hr_metrics(model, test_loader, device, eval_autocast_dtype)
+def train_one_iteration(
+    model,
+    optimizer,
+    train_sample,
+    device,
+    args,
+    variance_reg=0.0,
+    variance_smooth_reg=0.0,
+    holdout_state: EarlyStopState | None = None,
+    iteration: int = 0,
+    tile_sampler=None,
+    cross_sampler=None,
+    dataset=None,
+    grad_scaler=None,
+):
+    model.train()
+
+    tile = int(getattr(args, "lr_tile", 0) or 0)
+    if cross_sampler is not None and tile > 0 and dataset is not None:
+        pairs = cross_sampler.next_pairs()
+        masks = holdout_state.train_masks if holdout_state is not None else None
+        coords, lr_target, train_mask, sample_id, gt_dx, gt_dy = stack_cross_frame_tiles(
+            dataset,
+            pairs,
+            tile,
+            device,
+            train_masks=masks,
+        )
+        full_lr_hw = (
+            int(getattr(dataset, "lr_height", 0) or lr_target.shape[1]),
+            int(getattr(dataset, "lr_width", 0) or lr_target.shape[2]),
+        )
+    else:
+        coords = _as_device_tensor(train_sample["input"], device)
+        lr_target = _as_device_tensor(train_sample["lr_target"], device)
+        sample_id = _as_device_tensor(train_sample["sample_id"], device)
+        if "shifts" in train_sample and "dx_percent" in train_sample["shifts"]:
+            gt_dx = _as_device_tensor(train_sample["shifts"]["dx_percent"], device)
+            gt_dy = _as_device_tensor(train_sample["shifts"]["dy_percent"], device)
+        else:
+            gt_dx = torch.zeros(lr_target.shape[0], device=device)
+            gt_dy = torch.zeros(lr_target.shape[0], device=device)
+
+        train_mask = None
+        if holdout_state is not None:
+            train_mask = gather_train_masks(holdout_state.train_masks, sample_id, device)
+
+        full_lr_hw = (int(lr_target.shape[1]), int(lr_target.shape[2]))
+        origins = tile_sampler.next_origins() if tile_sampler is not None and tile > 0 else None
+        if origins:
+            coords, lr_target, train_mask, sample_id, gt_dx, gt_dy = stack_lr_hr_tiles(
+                coords,
+                lr_target,
+                origins,
+                tile,
+                mask=train_mask,
+                sample_id=sample_id,
+                gt_dx=gt_dx,
+                gt_dy=gt_dy,
+            )
+    model_kwargs = dict(_step_schedule_kwargs(args, iteration))
+
+    optimizer.zero_grad()
+    groups = resolve_grad_accum_groups(args, int(coords.shape[0]))
+    accumulated: dict[str, torch.Tensor] = {}
+    for chunk in _split_tile_batch(
+        groups, coords, lr_target, sample_id, train_mask, gt_dx, gt_dy
+    ):
+        c_coords, c_target, c_sid, c_mask, c_dx, c_dy = chunk
+        losses = _train_forward_losses(
+            model,
+            c_coords,
+            c_target,
+            c_sid,
+            c_mask,
+            c_dx,
+            c_dy,
+            full_lr_hw,
+            args,
+            model_kwargs,
+            variance_reg,
+            variance_smooth_reg,
+        )
+        # Each group holds an equal number of tiles, so averaging the group
+        # losses reproduces the full-batch loss (up to per-group differences
+        # in how many pixels the holdout mask leaves valid).
+        loss = losses["total_loss"] / groups
+        if grad_scaler is None:
+            loss.backward()
+        else:
+            # The tcnn decoder computes in fp16 while the loss is a mean, so
+            # dL/dout falls as 1/pixels-per-step and underflows to zero once a
+            # step covers a few million supervision pixels. Scale before
+            # backward; the scaler unscales before the step.
+            grad_scaler.scale(loss).backward()
+        for k, v in losses.items():
+            accumulated[k] = accumulated.get(k, 0.0) + v.detach() / groups
+
+    if grad_scaler is None:
+        optimizer.step()
+    else:
+        grad_scaler.step(optimizer)
+        grad_scaler.update()
+    return accumulated
+
+
+def test_one_epoch(model, test_loader, device, eval_autocast_dtype=None, args=None):
+    metrics = eval_hr_metrics(model, test_loader, device, eval_autocast_dtype, args=args)
     return metrics["test_loss"], metrics["test_psnr"]
 
 
@@ -414,7 +869,8 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
     # Setup optimizer for this sample
     optimizer = build_optimizer(model.parameters(), args)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.iters, eta_min=1e-6)
-    
+    grad_scaler = build_grad_scaler(args, device)
+
     # Training loop for this sample
     iteration = 0
     progress_bar = tqdm(total=args.iters, desc=f"Training Sample {sample_idx + 1}")
@@ -431,13 +887,35 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
     # Track timing for different phases
     training_start_time = time.time()
     
-    train_dataloader = DataLoader(train_data, batch_size=1, shuffle=False)
-    
+    train_dataloader = build_train_dataloader(train_data, args)
+    tile_sampler = build_lr_tile_sampler(train_data, args)
+    cross_sampler = build_cross_frame_tile_sampler(train_data, args)
+    init_hetero_region_scales(model, train_data, device)
+    _reset_peak_memory(device)
+
     eval_every = int(getattr(args, "eval_every", 100) or 0)
     skip_eval = bool(getattr(args, "skip_eval", False))
+    holdout_state = init_early_stop_state(
+        num_frames=int(getattr(train_data, "num_samples", len(train_data))),
+        lr_height=int(getattr(train_data, "lr_height", 0) or getattr(args, "lr_height", 0)),
+        lr_width=int(getattr(train_data, "lr_width", 0) or getattr(args, "lr_width", 0)),
+        spatial_holdout=float(getattr(args, "spatial_holdout", 0.0) or 0.0),
+        holdout_block=int(getattr(args, "holdout_block", 0) or 0),
+        patience=int(getattr(args, "early_stop_patience", 0) or 0),
+        min_iters=int(getattr(args, "early_stop_min_iters", 1000) or 0),
+        min_delta=float(getattr(args, "early_stop_min_delta", 0.0) or 0.0),
+        metric=str(getattr(args, "early_stop_metric", "lpips") or "lpips"),
+        max_regression=_resolve_early_stop_max_regression(args),
+        device=device,
+    )
+    val_every = _holdout_val_interval(args)
+    val_loss_list: list[float] = []
     
     while iteration < args.iters:
-        for train_sample in train_dataloader:
+        stop_training = False
+        # Cross-frame mix: one fused (tile×frame) mini-batch per step; else walk frames.
+        step_samples = [None] if cross_sampler is not None else train_dataloader
+        for train_sample in step_samples:
             if iteration >= args.iters:
                 break
                 
@@ -449,6 +927,12 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                 args,
                 variance_reg=args.variance_reg,
                 variance_smooth_reg=args.variance_smooth_reg,
+                holdout_state=holdout_state,
+                iteration=iteration + 1,
+                tile_sampler=tile_sampler,
+                cross_sampler=cross_sampler,
+                dataset=train_data,
+                grad_scaler=grad_scaler,
             )
             scheduler.step()
             iteration += 1
@@ -456,15 +940,43 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
             progress_bar.update(1)
             if iteration % LOG_POSTFIX_INTERVAL == 0:
                 scalars = _stack_train_loss_scalars(train_losses)
-                progress_bar.set_postfix(_train_postfix_from_scalars(scalars))
+                postfix = _train_postfix_from_scalars(scalars)
+                if val_loss_list:
+                    postfix["val"] = f"{val_loss_list[-1]:.4f}"
+                progress_bar.set_postfix(postfix)
             
-            # Periodic evaluation
-            if eval_every > 0 and not skip_eval and iteration % eval_every == 0:
+            # Holdout val / early stop (even when HR eval is skipped).
+            if holdout_state is not None and iteration % val_every == 0:
                 scalars = _stack_train_loss_scalars(train_losses)
-                eval_metrics = eval_hr_metrics(model, train_data, device)
+                val_loss, eval_metrics, should_stop = _run_holdout_val_step(
+                    model=model,
+                    dataset=train_data,
+                    holdout_state=holdout_state,
+                    args=args,
+                    device=device,
+                    iteration=iteration,
+                    scalars=scalars,
+                    skip_hr_eval=_skip_periodic_hr_eval(args),
+                )
+                val_loss_list.append(val_loss)
+                if eval_metrics is not None:
+                    iteration_list.append(iteration)
+                    psnr_list.append(eval_metrics["test_psnr"])
+                    ssim_list.append(eval_metrics["model_ssim"])
+                    lpips_list.append(eval_metrics["model_lpips"])
+                    recon_loss_list.append(scalars['recon_loss'])
+                    trans_loss_list.append(scalars['trans_loss'])
+                    total_loss_list.append(scalars['total_loss'])
+                if should_stop:
+                    stop_training = True
+                    break
+            elif eval_every > 0 and not _skip_periodic_hr_eval(args) and iteration % eval_every == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
+                eval_metrics = eval_hr_metrics(
+                    model, train_data, device, args=args, iteration=iteration
+                )
                 print(_format_periodic_eval_line(iteration, scalars, eval_metrics))
 
-                # Store training metrics
                 iteration_list.append(iteration)
                 psnr_list.append(eval_metrics["test_psnr"])
                 ssim_list.append(eval_metrics["model_ssim"])
@@ -473,8 +985,16 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                 trans_loss_list.append(scalars['trans_loss'])
                 total_loss_list.append(scalars['total_loss'])
 
+        if stop_training:
+            break
+
     progress_bar.close()
-    
+
+    if holdout_state is not None and holdout_state.restore_best(model):
+        print(
+            f"Restored best holdout checkpoint from iter {holdout_state.best_iter} "
+            f"(val={holdout_state.best_val:.6f})"
+        )
     # Record training end time
     training_end_time = time.time()
     training_time = training_end_time - training_start_time
@@ -487,18 +1007,16 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         hr_coords = train_data.get_hr_coordinates().unsqueeze(0).to(device)
         hr_image = train_data.get_original_hr().unsqueeze(0).to(device)
         sample_id = torch.tensor([0]).to(device)
-        
-        if eval_autocast_dtype is not None:
-            with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
-                if model.use_gnll:
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-                else:
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-        else:
-            if model.use_gnll:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-            else:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+
+        output = _forward_hr_output(
+            model,
+            hr_coords,
+            hr_image,
+            sample_id,
+            device,
+            eval_autocast_dtype,
+            hr_render_tile=int(getattr(args, "hr_render_tile", 0) or 0),
+        )
 
         # Unstandardize the output
         output = output * train_data.get_lr_std(0).to(device) + train_data.get_lr_mean(0).to(device)
@@ -527,10 +1045,9 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                     lr_standardized_hwc = lr_any[:, :, :3]
             else:
                 lr_standardized_hwc = lr_any  # assume HWC
-            # SRData.get_lr_sample returns unstandardized already → do NOT unstandardize again
             lr_needs_unstandardize = False
 
-        # Unstandardize only if the LR we fetched is standardized (e.g., WorldStratTestDataset)
+        # Unstandardize only if the LR we fetched is standardized
         if lr_needs_unstandardize:
             lr_std = train_data.get_lr_std(0).cpu().numpy()
             lr_mean = train_data.get_lr_mean(0).cpu().numpy()
@@ -554,31 +1071,32 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         print("Skipping alignment (disabled to avoid memory issues)")
         pred_aligned = pred_tensor
         bilinear_aligned = bilinear_tensor
-        
-        # Spatial alignment disabled (causes OOM on small GPUs).
 
-        # Calculate comprehensive metrics using aligned tensors
-        model_psnr = peak_signal_noise_ratio(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_psnr = peak_signal_noise_ratio(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        
-        model_ssim = ssim(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        
+        eval_mask_hw = _get_hr_eval_mask(train_data)
+        if eval_mask_hw is not None:
+            print(
+                f"Using masked HR eval on {train_data.hr_valid_fraction * 100:.1f}% valid GT pixels"
+            )
+
         lpips_fn = get_lpips_model(device)
-        model_lpips = lpips_fn((pred_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
-        bilinear_lpips = lpips_fn((bilinear_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
-        
-        # Calculate additional metrics
-        # MSE (Mean Squared Error)
-        model_mse = F.mse_loss(pred_aligned, gt_tensor).item()
-        bilinear_mse = F.mse_loss(bilinear_aligned, gt_tensor).item()
-        
-        # MAE (Mean Absolute Error)
-        model_mae = F.l1_loss(pred_aligned, gt_tensor).item()
-        bilinear_mae = F.l1_loss(bilinear_aligned, gt_tensor).item()
-        
+        frame_metrics = _compute_full_frame_metrics(
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, eval_mask_hw
+        )
+        final_test_loss = frame_metrics["test_loss"]
+        final_psnr = frame_metrics["test_psnr"]
+        model_psnr = frame_metrics["model_psnr"]
+        bilinear_psnr = frame_metrics["bilinear_psnr"]
+        model_ssim = frame_metrics["model_ssim"]
+        bilinear_ssim = frame_metrics["bilinear_ssim"]
+        model_lpips = frame_metrics["model_lpips"]
+        bilinear_lpips = frame_metrics["bilinear_lpips"]
+        model_mse = frame_metrics["model_mse"]
+        bilinear_mse = frame_metrics["bilinear_mse"]
+        model_mae = frame_metrics["model_mae"]
+        bilinear_mae = frame_metrics["bilinear_mae"]
+
         fixed_spot = _maybe_fixed_spot_metrics(
-            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args, dataset=train_data
         )
         if fixed_spot:
             print(
@@ -793,7 +1311,7 @@ def visualize_lr_variance(model, train_data, device, output_dir, sample_id):
                 std_i = train_data.get_lr_std(i)
                 mean_i = train_data.get_lr_mean(i)
             except (TypeError, IndexError):
-                # Some datasets (e.g., worldstrat_test) may not index per-sample; fall back to 0
+                # Some datasets may not index per-sample; fall back to 0
                 try:
                     std_i = train_data.get_lr_std(0)
                     mean_i = train_data.get_lr_mean(0)
@@ -1129,271 +1647,83 @@ def create_variance_summary(train_data, variance_dir, device):
     
     print(f"Variance summary saved to {summary_path}")
 
-def create_summary_visualization(all_results, output_dir):
-    """Create summary visualization showing metrics across all samples."""
-    if not all_results:
-        return
-    
-    # Extract metrics from nested structure
-    sample_indices = [r['sample_idx'] for r in all_results]
-    model_psnr = [r['image_metrics']['model_psnr'] for r in all_results]
-    bilinear_psnr = [r['image_metrics']['bilinear_psnr'] for r in all_results]
-    psnr_improvement = [r['image_metrics']['psnr_improvement'] for r in all_results]
-    model_ssim = [r['image_metrics']['model_ssim'] for r in all_results]
-    bilinear_ssim = [r['image_metrics']['bilinear_ssim'] for r in all_results]
-    ssim_improvement = [r['image_metrics']['ssim_improvement'] for r in all_results]
-    model_lpips = [r['image_metrics']['model_lpips'] for r in all_results]
-    bilinear_lpips = [r['image_metrics']['bilinear_lpips'] for r in all_results]
-    lpips_improvement = [r['image_metrics']['lpips_improvement'] for r in all_results]
-    trans_loss_values = [r['training_metrics']['final_trans_loss'] if r['training_metrics']['final_trans_loss'] is not None else 0.0 for r in all_results]
-    
-    # Create summary plots
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    
-    # PSNR comparison
-    axes[0, 0].bar(sample_indices, model_psnr, alpha=0.7, label='Model', color='blue')
-    axes[0, 0].bar(sample_indices, bilinear_psnr, alpha=0.7, label='Bilinear', color='orange')
-    axes[0, 0].set_xlabel('Sample Index')
-    axes[0, 0].set_ylabel('PSNR (dB)')
-    axes[0, 0].set_title('PSNR Comparison Across Samples')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # PSNR improvement
-    colors = ['green' if x > 0 else 'red' for x in psnr_improvement]
-    axes[0, 1].bar(sample_indices, psnr_improvement, color=colors, alpha=0.7)
-    axes[0, 1].axhline(y=0, color='black', linestyle='-', alpha=0.5)
-    axes[0, 1].set_xlabel('Sample Index')
-    axes[0, 1].set_ylabel('PSNR Improvement (dB)')
-    axes[0, 1].set_title('PSNR Improvement (Model - Bilinear)')
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # Transformation Loss
-    axes[0, 2].bar(sample_indices, trans_loss_values, alpha=0.7, color='teal')
-    axes[0, 2].set_xlabel('Sample Index')
-    axes[0, 2].set_ylabel('Transformation Loss')
-    axes[0, 2].set_title('Final Transformation Loss Across Samples')
-    axes[0, 2].grid(True, alpha=0.3)
-    
-    # SSIM comparison
-    axes[1, 0].bar(sample_indices, model_ssim, alpha=0.7, label='Model', color='purple')
-    axes[1, 0].bar(sample_indices, bilinear_ssim, alpha=0.7, label='Bilinear', color='orange')
-    axes[1, 0].set_xlabel('Sample Index')
-    axes[1, 0].set_ylabel('SSIM')
-    axes[1, 0].set_title('SSIM Comparison Across Samples')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # LPIPS comparison
-    axes[1, 1].bar(sample_indices, model_lpips, alpha=0.7, label='Model', color='brown')
-    axes[1, 1].bar(sample_indices, bilinear_lpips, alpha=0.7, label='Bilinear', color='orange')
-    axes[1, 1].set_xlabel('Sample Index')
-    axes[1, 1].set_ylabel('LPIPS')
-    axes[1, 1].set_title('LPIPS Comparison Across Samples')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    # Overall improvement metrics
-    axes[1, 2].bar(sample_indices, psnr_improvement, alpha=0.7, color='green')
-    axes[1, 2].axhline(y=0, color='black', linestyle='-', alpha=0.5)
-    axes[1, 2].set_xlabel('Sample Index')
-    axes[1, 2].set_ylabel('Improvement (dB)')
-    axes[1, 2].set_title('PSNR Improvement per Sample')
-    axes[1, 2].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / "summary_metrics.png", bbox_inches='tight', pad_inches=0.1, dpi=300)
-    plt.close()
-    
-    # Create box plots for aggregated metrics
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    
-    # PSNR box plot
-    axes[0].boxplot([model_psnr, bilinear_psnr], labels=['Model', 'Bilinear'])
-    axes[0].set_ylabel('PSNR (dB)')
-    axes[0].set_title('PSNR Distribution Comparison')
-    axes[0].grid(True, alpha=0.3)
-    
-    # SSIM box plot
-    axes[1].boxplot([model_ssim, bilinear_ssim], labels=['Model', 'Bilinear'])
-    axes[1].set_ylabel('SSIM')
-    axes[1].set_title('SSIM Distribution Comparison')
-    axes[1].grid(True, alpha=0.3)
-    
-    # LPIPS box plot
-    axes[2].boxplot([model_lpips, bilinear_lpips], labels=['Model', 'Bilinear'])
-    axes[2].set_ylabel('LPIPS')
-    axes[2].set_title('LPIPS Distribution Comparison')
-    axes[2].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / "metrics_distribution.png", bbox_inches='tight', pad_inches=0.1, dpi=300)
-    plt.close()
-
-    create_spot_summary_visualization(all_results, output_dir)
-    create_sr_sample_grid(output_dir, all_results)
-    
-    # Calculate and save aggregated statistics
-    summary_stats = {
-        'total_samples': len(all_results),
-        'psnr': {
-            'model_mean': np.mean(model_psnr),
-            'model_std': np.std(model_psnr),
-            'model_min': np.min(model_psnr),
-            'model_max': np.max(model_psnr),
-            'bilinear_mean': np.mean(bilinear_psnr),
-            'bilinear_std': np.std(bilinear_psnr),
-            'bilinear_min': np.min(bilinear_psnr),
-            'bilinear_max': np.max(bilinear_psnr),
-            'improvement_mean': np.mean(psnr_improvement),
-            'improvement_std': np.std(psnr_improvement),
-            'improvement_min': np.min(psnr_improvement),
-            'improvement_max': np.max(psnr_improvement)
-        },
-        'ssim': {
-            'model_mean': np.mean(model_ssim),
-            'model_std': np.std(model_ssim),
-            'model_min': np.min(model_ssim),
-            'model_max': np.max(model_ssim),
-            'bilinear_mean': np.mean(bilinear_ssim),
-            'bilinear_std': np.std(bilinear_ssim),
-            'bilinear_min': np.min(bilinear_ssim),
-            'bilinear_max': np.max(bilinear_ssim),
-            'improvement_mean': np.mean(ssim_improvement),
-            'improvement_std': np.std(ssim_improvement),
-            'improvement_min': np.min(ssim_improvement),
-            'improvement_max': np.max(ssim_improvement)
-        },
-        'lpips': {
-            'model_mean': np.mean(model_lpips),
-            'model_std': np.std(model_lpips),
-            'model_min': np.min(model_lpips),
-            'model_max': np.max(model_lpips),
-            'bilinear_mean': np.mean(bilinear_lpips),
-            'bilinear_std': np.std(bilinear_lpips),
-            'bilinear_min': np.min(bilinear_lpips),
-            'bilinear_max': np.max(bilinear_lpips),
-            'improvement_mean': np.mean(lpips_improvement),
-            'improvement_std': np.std(lpips_improvement),
-            'improvement_min': np.min(lpips_improvement),
-            'improvement_max': np.max(lpips_improvement)
-        },
-        'transformation_loss': {
-            'mean': np.mean(trans_loss_values),
-            'std': np.std(trans_loss_values),
-            'min': np.min(trans_loss_values),
-            'max': np.max(trans_loss_values)
-        }
-    }
-    
-    # Save aggregated statistics to JSON
-    with open(output_dir / "summary_statistics.json", "w") as f:
-        json.dump(summary_stats, f, indent=2)
-    
-    # Save human-readable summary
-    summary_text = f"""Multi-Sample Super-Resolution Results Summary
-================================================
-
-Total Samples Processed: {len(all_results)}
-
-PSNR Results (dB):
-------------------
-Model Output:
-  Mean: {summary_stats['psnr']['model_mean']:.2f} ± {summary_stats['psnr']['model_std']:.2f}
-  Range: {summary_stats['psnr']['model_min']:.2f} - {summary_stats['psnr']['model_max']:.2f}
-
-Bilinear Baseline:
-  Mean: {summary_stats['psnr']['bilinear_mean']:.2f} ± {summary_stats['psnr']['bilinear_std']:.2f}
-  Range: {summary_stats['psnr']['bilinear_min']:.2f} - {summary_stats['psnr']['bilinear_max']:.2f}
-
-PSNR Improvement (Model - Bilinear):
-  Mean: {summary_stats['psnr']['improvement_mean']:.2f} ± {summary_stats['psnr']['improvement_std']:.2f}
-  Range: {summary_stats['psnr']['improvement_min']:.2f} - {summary_stats['psnr']['improvement_max']:.2f}
-
-SSIM Results:
--------------
-Model Output:
-  Mean: {summary_stats['ssim']['model_mean']:.4f} ± {summary_stats['ssim']['model_std']:.4f}
-  Range: {summary_stats['ssim']['model_min']:.4f} - {summary_stats['ssim']['model_max']:.4f}
-
-Bilinear Baseline:
-  Mean: {summary_stats['ssim']['bilinear_mean']:.4f} ± {summary_stats['ssim']['bilinear_std']:.4f}
-  Range: {summary_stats['ssim']['bilinear_min']:.4f} - {summary_stats['ssim']['bilinear_max']:.4f}
-
-SSIM Improvement (Model - Bilinear):
-  Mean: {summary_stats['ssim']['improvement_mean']:.4f} ± {summary_stats['ssim']['improvement_std']:.4f}
-  Range: {summary_stats['ssim']['improvement_min']:.4f} - {summary_stats['ssim']['improvement_max']:.4f}
-
-LPIPS Results:
---------------
-Model Output:
-  Mean: {summary_stats['lpips']['model_mean']:.4f} ± {summary_stats['lpips']['model_std']:.4f}
-  Range: {summary_stats['lpips']['model_min']:.4f} - {summary_stats['lpips']['model_max']:.4f}
-
-Bilinear Baseline:
-  Mean: {summary_stats['lpips']['bilinear_mean']:.4f} ± {summary_stats['lpips']['bilinear_std']:.4f}
-  Range: {summary_stats['lpips']['bilinear_min']:.4f} - {summary_stats['lpips']['bilinear_max']:.4f}
-
-LPIPS Improvement (Bilinear - Model):
-  Mean: {summary_stats['lpips']['improvement_mean']:.4f} ± {summary_stats['lpips']['improvement_std']:.4f}
-  Range: {summary_stats['lpips']['improvement_min']:.4f} - {summary_stats['lpips']['improvement_max']:.4f}
-
-Transformation Loss Results:
-----------------------------
-Final Transformation Loss:
-  Mean: {summary_stats['transformation_loss']['mean']:.6f} ± {summary_stats['transformation_loss']['std']:.6f}
-  Range: {summary_stats['transformation_loss']['min']:.6f} - {summary_stats['transformation_loss']['max']:.6f}
-
-Files Generated:
-- summary_metrics.png: Bar charts comparing metrics across samples
-- metrics_distribution.png: Box plots showing metric distributions
-- summary_statistics.json: Detailed numerical statistics
-- sample_XXX/: Individual results for each sample
-"""
-    
-    with open(output_dir / "summary_report.txt", "w") as f:
-        f.write(summary_text)
-    
-    print(f"\n{'='*60}")
-    print("Summary Statistics")
-    print(f"{'='*60}")
-    print(f"PSNR Improvement: {summary_stats['psnr']['improvement_mean']:.2f} ± {summary_stats['psnr']['improvement_std']:.2f} dB")
-    print(f"SSIM Improvement: {summary_stats['ssim']['improvement_mean']:.4f} ± {summary_stats['ssim']['improvement_std']:.4f}")
-    print(f"LPIPS Improvement: {summary_stats['lpips']['improvement_mean']:.4f} ± {summary_stats['lpips']['improvement_std']:.4f}")
-    print(f"Average Transformation Loss: {summary_stats['transformation_loss']['mean']:.6f} ± {summary_stats['transformation_loss']['std']:.6f}")
-    print(f"{'='*60}\n")
-    print(f"📊 Summary visualizations saved to {output_dir}/summary_metrics.png and {output_dir}/metrics_distribution.png")
-    print(f"📈 Aggregated statistics saved to {output_dir}/summary_statistics.json and {output_dir}/summary_report.txt")
-
 
 def main():
     parser = argparse.ArgumentParser(description="Minimal Satellite Super-Resolution Training")
     
     # Essential parameters only
-    parser.add_argument("--dataset", type=str, default="satburst_synth", 
-                       choices=["satburst_synth", "worldstrat", "burst_synth", "worldstrat_test", "worldstrat_sweet", "worldstrat_bitter"])
-    parser.add_argument("--sample_id", default="Landcover-743192_rgb")
+    parser.add_argument("--dataset", type=str, default="s2",
+                       help="Dataset name or city id (s2 / bergen / kristiansand) used in output paths.")
+    parser.add_argument(
+        "--s2-dir",
+        dest="s2_dir",
+        type=str,
+        default=None,
+        help="Sentinel-2 revisit directory with meta.json (default: data/s2_revisits/bergen).",
+    )
+    parser.add_argument(
+        "--hr-path",
+        dest="hr_path",
+        type=str,
+        default=None,
+        help="NIB HR ortho GeoTIFF. Default: data/nib_resampled/<city>/*_{10/df}m.tif",
+    )
+    parser.add_argument(
+        "--hr-gsd-m",
+        dest="hr_gsd_m",
+        type=float,
+        default=0.0,
+        help="HR GSD in meters (default: --s2-native-gsd-m / --df, e.g. 2.5 for df=4).",
+    )
+    parser.add_argument(
+        "--no_hr_harmonize",
+        action="store_true",
+        help="Disable NIB->S2 HR radiometric harmonization (SEN2NAIP per-band histogram matching) used for eval GT.",
+    )
+    parser.add_argument(
+        "--no_hr_spatial_align",
+        action="store_true",
+        help="Disable NIB->S2 HR spatial shift from eval/spatial_alignment.json (eval GT only).",
+    )
+    parser.add_argument(
+        "--spatial_alignment_path",
+        type=str,
+        default=None,
+        help="JSON with per-city hr_shift_hr_px (default: eval/spatial_alignment.json).",
+    )
+    parser.add_argument("--sample_id", default="sample")
     parser.add_argument("--df", type=int, default=4, help="Downsampling factor, or upsampling factor for the data")
     parser.add_argument("--scale_factor", type=float, default=4, help="scale factor for the input training grid")
-    
-    # Multi-sample optimization parameters
-    parser.add_argument("--multi_sample", action="store_true", help="Optimize against all samples in dataset")
-    parser.add_argument("--output_folder", type=str, default="multi_sample_results", help="Output folder for multi-sample results")
-
-    parser.add_argument("--lr_shift", type=float, default=1.0)
     parser.add_argument("--num_samples", type=int, default=16)
-    parser.add_argument("--aug", type=str, default="none", choices=['none', 'light', 'medium', 'heavy'])
     
     # Model parameters
-    parser.add_argument("--model", type=str, default="mlp",
+    parser.add_argument("--model", type=str, default="mlp_tcnn",
                        choices=["mlp", "mlp_tcnn", "nir"])
     parser.add_argument("--network_depth", type=int, default=4)
     parser.add_argument("--network_hidden_dim", type=int, default=256)
     parser.add_argument("--projection_dim", type=int, default=256)
-    parser.add_argument("--input_projection", type=str, default="fourier_10",
+    parser.add_argument("--input_projection", type=str, default="hashgrid_tcnn",
                        help="fourier, fourier_N, hashgrid, hashgrid_tcnn, none")
     parser.add_argument("--fourier_scale", type=float, default=10.0)
     parser.add_argument("--use_gnll", action="store_true")
+    parser.add_argument(
+        "--use_laplace_nll",
+        action="store_true",
+        help="Heteroscedastic Laplace NLL (robust L1 + learned scale). Mutually exclusive with --use_gnll.",
+    )
+    parser.add_argument(
+        "--hetero_scale",
+        type=str,
+        default="pixel",
+        choices=["pixel", "frame", "region"],
+        help="Hetero uncertainty: per-pixel maps, one scalar per LR frame, or tiled regions.",
+    )
+    parser.add_argument(
+        "--hetero_region_size",
+        type=int,
+        default=4,
+        help="Tile size (LR pixels) for --hetero_scale region (default: 4 → 4x4 regions).",
+    )
     parser.add_argument("--use_separate_ud", action="store_true", help="Use separate UD parameters for each sample (default: False)")
     parser.add_argument("--variance_reg", type=float, default=0.0, help="L2 regularization strength for log-variances (default: 0.0)")
     parser.add_argument("--variance_smooth_reg", type=float, default=0.0, help="Smoothness regularization strength for variance maps (default: 0.0)")
@@ -1402,15 +1732,33 @@ def main():
     parser.add_argument("--no_base_frame", action="store_true", help="Disable base frame (default: use_base_frame=True)")
     parser.add_argument("--no_direct_param_T", action="store_true", help="Disable direct parameter T (default: use_direct_param_T=True)")
     
-    parser.add_argument("--satburst_data_root", type=str, default=None)
     parser.add_argument("--lr_size", type=int, default=0)
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument(
         "--lr_degradation",
         type=str,
-        default="area",
+        default="s2_psf_m",
         choices=["area", "s2_psf", "s2_psf_m"],
-        help="HR→LR operator during training (match synth_export_meta degradation).",
+        help="HR→LR operator during training (default: s2_psf_m).",
+    )
+    parser.add_argument(
+        "--recon_loss",
+        type=str,
+        default="mae",
+        choices=["mse", "mae", "charbonnier", "huber"],
+        help="LR reconstruction loss (default: mae). mae is more robust to hashgrid ringing than mse.",
+    )
+    parser.add_argument(
+        "--charbonnier_eps",
+        type=float,
+        default=1e-3,
+        help="Epsilon for Charbonnier loss (default: 1e-3).",
+    )
+    parser.add_argument(
+        "--huber_delta",
+        type=float,
+        default=0.05,
+        help="Quadratic/linear transition for Huber loss in normalized reflectance units (default: 0.05).",
     )
     parser.add_argument("--s2-native-gsd-m", dest="s2_native_gsd_m", type=float, default=10.0)
     parser.add_argument("--s2-psf-truncate", dest="s2_psf_truncate", type=float, default=4.0)
@@ -1419,40 +1767,153 @@ def main():
     parser.add_argument("--s2-psf-sigma-b04-m", dest="s2_psf_sigma_b04_m", type=float, default=4.2)
     parser.add_argument("--s2-psf-sigma-b08-m", dest="s2_psf_sigma_b08_m", type=float, default=3.5)
     parser.add_argument("--hash_max_resolution", type=int, default=0)
-    parser.add_argument("--hash_base_resolution", type=int, default=0)
+    parser.add_argument("--hash_max_resolution_h", type=int, default=0,
+                        help="Hashgrid max resolution for the height (row) axis. "
+                             "0 = auto from dataset LR height.")
+    parser.add_argument("--hash_max_resolution_w", type=int, default=0,
+                        help="Hashgrid max resolution for the width (col) axis. "
+                             "0 = auto from dataset LR width.")
+    parser.add_argument("--hash_base_resolution", type=int, default=0,
+                        help="Hashgrid coarsest level resolution. 0 = auto (max/4).")
+    parser.add_argument("--hash_max_resolution_mult", type=float, default=1.0,
+                        help="Scale the auto-derived max resolution. 1.0 (default) caps the "
+                             "finest level at the LR grid; use the scale factor (e.g. 4) to "
+                             "let the encoder represent detail up to the HR grid.")
     parser.add_argument("--hash_n_levels", type=int, default=16)
     parser.add_argument("--hash_n_features_per_level", type=int, default=2)
-    parser.add_argument("--hash_log2_hashmap_size", type=int, default=19)
+    parser.add_argument("--hash_log2_hashmap_size", type=int, default=21)
     parser.add_argument(
         "--hash_interpolation",
         type=str,
-        default="smoothstep",
+        default="linear",
         choices=["smoothstep", "linear"],
         help=(
-            "Hash grid vertex interpolation (default: smoothstep). "
+            "Hash grid vertex interpolation (default: linear). "
             "smoothstep applies NGP Appendix A half-voxel per-level offset; "
             "linear matches the paper's main multilinear default."
         ),
     )
     parser.add_argument(
-        "--hash_level_sigma",
+        "--schedule_horizon_iters",
+        type=int,
+        default=3000,
+        help="Horizon for PSF curriculum / sigma schedules (default: 3000).",
+    )
+    parser.add_argument(
+        "--schedule_boundaries",
+        type=str,
+        default="0.27,0.53",
+        help="Step-schedule phase boundaries as progress fractions (default: 0.27,0.53).",
+    )
+    parser.add_argument(
+        "--psf_curriculum",
+        type=str,
+        default="none",
+        choices=["none", "step"],
+        help="PSF curriculum: area -> s2_psf -> lr_degradation target (default: none).",
+    )
+    parser.add_argument(
+        "--psf_sigma_schedule",
+        type=str,
+        default="none",
+        choices=["none", "linear", "step"],
+        help="Ramp s2_psf_m sigma scale from psf_sigma_min_scale to 1.0 (default: none).",
+    )
+    parser.add_argument(
+        "--psf_sigma_min_scale",
         type=float,
         default=0.0,
-        help=(
-            "Zip-NeRF style anti-aliasing level weights: each hash level l is scaled by "
-            "erf(1/(sqrt(8)*sigma*N_l)), suppressing levels finer than the LR supervision "
-            "footprint (fights blocky artifacts). sigma is the footprint std in normalized "
-            "coordinates: for area degradation with LR side W_lr use 1/(sqrt(12)*W_lr) "
-            "(e.g. W_lr=64 -> ~0.0045); for a Gaussian PSF use sigma_px_hr/W_hr. "
-            "0 disables (default)."
-        ),
+        help="Starting sigma scale for psf_sigma_schedule (0 ≈ area pool).",
     )
     parser.add_argument("--tcnn_mlp_dtype", type=str, default="fp16", choices=["fp16", "fp32"])
     parser.add_argument("--supervision_channels", type=int, default=3)
-    parser.add_argument("--eval_every", type=int, default=100)
+    parser.add_argument("--eval_every", type=int, default=200,
+                        help="Periodic HR eval / holdout-val interval in iterations (default: 200).")
+    parser.add_argument(
+        "--hr_render_tile",
+        type=int,
+        default=0,
+        help=(
+            "HR decode tile side in pixels for final/periodic eval (0=auto: full if ≤2048², "
+            "else 2048). Needed for large AOIs like LR2048→HR8192."
+        ),
+    )
     parser.add_argument("--no_multiband_diagnostics", action="store_true")
     parser.add_argument("--skip_eval", action="store_true")
     parser.add_argument("--skip_artifacts", action="store_true")
+    parser.add_argument(
+        "--no_qgis_export",
+        action="store_true",
+        help="Skip writing georeferenced GeoTIFFs (hr_gt / sr_pred / s2_bilinear) for QGIS.",
+    )
+    parser.add_argument(
+        "--spatial_holdout",
+        type=float,
+        default=0.1,
+        help=(
+            "Fraction of LR pixel blocks held out of the train loss and used for "
+            "validation / early stopping (0=disable). Independent per frame."
+        ),
+    )
+    parser.add_argument(
+        "--holdout_block",
+        type=int,
+        default=0,
+        help=(
+            "Side length in LR pixels of each held-out block. "
+            "0=auto (scales with AOI; ~8 on LR512, ~32 on LR2048)."
+        ),
+    )
+    parser.add_argument(
+        "--holdout_patch_batch",
+        type=int,
+        default=0,
+        help=(
+            "Holdout patches per val forward (0=auto from holdout_block). "
+            "Larger = fewer launches, more VRAM during val."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_metric",
+        type=str,
+        default="lpips",
+        choices=["holdout_mse", "lpips", "psnr", "mae"],
+        help=(
+            "Metric for checkpoint restore / early stopping when spatial_holdout>0. "
+            "lpips/mae/psnr use full-frame HR GT (needs periodic eval); holdout_mse uses "
+            "held-out LR blocks only."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_patience",
+        type=int,
+        default=3,
+        help=(
+            "Stop after this many val checks without improvement on early_stop_metric "
+            "(0=never early-stop; still logs val when spatial_holdout>0)."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_max_regression",
+        type=float,
+        default=-1.0,
+        help=(
+            "Force stop when the metric regresses more than this from the best score "
+            "(-1 = auto: 0.003 for LPIPS, 0.002 for MAE, 0 for holdout_mse)."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_min_iters",
+        type=int,
+        default=1000,
+        help="Do not early-stop before this many iterations (default: 1000).",
+    )
+    parser.add_argument(
+        "--early_stop_min_delta",
+        type=float,
+        default=0.0005,
+        help="Minimum improvement in the stop metric to reset patience (default: 0.0005 for LPIPS).",
+    )
     parser.add_argument(
         "--eval-spot-hr-px",
         dest="eval_spot_hr_px",
@@ -1463,8 +1924,43 @@ def main():
 
     # Training parameters
     parser.add_argument("--seed", type=int, default=6)
-    parser.add_argument("--iters", type=int, default=2000)
-    parser.add_argument("--learning_rate", type=float, default=2e-3)
+    parser.add_argument(
+        "--iters",
+        type=int,
+        default=3000,
+        help="Max training iterations (default: 3000). LPIPS early stop usually fires earlier.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Training DataLoader batch size (frames per optimizer step). Default: 1.",
+    )
+    parser.add_argument(
+        "--lr_tile",
+        type=int,
+        default=0,
+        help="LR spatial tile size for training (0=full field). E.g. 64 → HR 256 at df=4.",
+    )
+    parser.add_argument(
+        "--lr_tiles_per_step",
+        type=int,
+        default=1,
+        help="How many LR tiles per optimizer step (0=all complete tiles, shuffled). Default: 1.",
+    )
+    parser.add_argument(
+        "--lr_tile_mix",
+        type=str,
+        default="within",
+        choices=["within", "cross_epoch", "cross_iid", "cross_same_tile"],
+        help=(
+            "How fused tiles pick frames: within=current DataLoader frame; "
+            "cross_epoch=shuffle spatial index + random frame IDs then mini-batch; "
+            "cross_iid=k independent (tile, frame) draws each step; "
+            "cross_same_tile=one spatial tile × k frames per step."
+        ),
+    )
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=0.05)
     parser.add_argument("--optimizer", type=str, default="adamw", choices=["adamw", "muon"])
     parser.add_argument("--muon_momentum", type=float, default=0.95)
@@ -1477,6 +1973,26 @@ def main():
         type=str,
         default="auto",
         help="Device for cached LR frames and coord grids (default: auto = same as --device).",
+    )
+    parser.add_argument(
+        "--grad_scaler", type=str, default="auto",
+        help=(
+            "Loss scaling for the fp16 tcnn decoder: 'auto' (on for CUDA) or "
+            "'off'. Without it, dL/dout underflows fp16 once a step covers a "
+            "few million HR rows and the decoder stops training."
+        ),
+    )
+    parser.add_argument(
+        "--grad_scaler_init_scale", type=float, default=0.0,
+        help="Initial loss scale (0 = 2**15).",
+    )
+    parser.add_argument(
+        "--grad_accum", type=int, default=1,
+        help=(
+            "Split each fused tile batch into this many micro-batches before "
+            "stepping. Lets high --lr_tiles_per_step run without the single "
+            "huge forward that OOMs tinycudann (k8/k16 at LR2048 tile 512)."
+        ),
     )
     parser.add_argument("--eval_mixed_precision", type=str, default="none",
                         choices=["none", "auto", "fp16", "bfloat16"],
@@ -1537,147 +2053,76 @@ def main():
     else:
         raise ValueError(f"Unknown input projection: {args.input_projection}")
 
-    # Setup dataset
-    if args.dataset == "satburst_synth":
-        args.root_satburst_synth = satburst_scene_dir(args)
-        print(f"Scene: {args.root_satburst_synth}", flush=True)
-        print(f"LR degradation: {args.lr_degradation}", flush=True)
-    elif args.dataset == "burst_synth":
-        args.root_burst_synth = "SyntheticBurstVal"
-        # Convert sample_id to integer for burst_synth dataset
-        try:
-            args.sample_id = int(args.sample_id)
-        except ValueError:
-            print(f"Warning: sample_id '{args.sample_id}' cannot be converted to integer for burst_synth dataset. Using 0 instead.")
-            args.sample_id = 0
-
-    # Handle multi-sample vs single-sample optimization
-    if args.multi_sample:
-        # Multi-sample optimization
-        print(f"Starting multi-sample optimization for dataset: {args.dataset}")
-        
-        # Setup output directory
-        output_dir = Path(args.output_folder)
-        output_dir.mkdir(exist_ok=True)
-        
-        # Get all samples in the dataset
-        if args.dataset in ["worldstrat_test", "worldstrat_sweet", "worldstrat_bitter"]:
-            # For worldstrat_test, we need to get all sample IDs
-            from data import WorldStratTestDataset
-            if args.dataset == "worldstrat_test":
-                data_root = "worldstrat_test_data"
-            elif args.dataset == "worldstrat_sweet":
-                data_root = "worldstrat_datasets/worldstrat_sweet"
-            else:
-                data_root = "worldstrat_datasets/worldstrat_bitter"
-            # Hint to downstream loaders which root to use (if supported)
-            os.environ["WORLDSTRAT_TEST_ROOT"] = str(data_root)
-            sample_dirs = [d for d in Path(data_root).iterdir() if d.is_dir()]
-            sample_ids = [d.name for d in sample_dirs]
-            print(f"Found {len(sample_ids)} samples: {sample_ids[:5]}...")
-        elif args.dataset == "burst_synth":
-            # For burst_synth, get all sample IDs from the gt folder
-            if 'DATA_DIR_ABSOLUTE' in os.environ:
-                data_root = Path(os.environ['DATA_DIR_ABSOLUTE'])
-            else:
-                data_root = Path("SyntheticBurstVal")
-            
-            gt_dir = data_root / "gt"
-            if gt_dir.exists():
-                sample_dirs = [d for d in gt_dir.iterdir() if d.is_dir()]
-                sample_ids = [int(d.name) for d in sample_dirs if d.name.isdigit()]
-                sample_ids.sort()
-                print(f"Found {len(sample_ids)} samples: {sample_ids[:5]}...")
-            else:
-                print(f"Error: GT directory {gt_dir} not found!")
-                return
-        elif args.dataset == "satburst_synth":
-            # For satburst_synth, each sample is a directory inside data/
-            data_root = Path("data")
-            if not data_root.exists():
-                print(f"Error: data directory {data_root} not found!")
-                return
-            sample_dirs = [d for d in data_root.iterdir() if d.is_dir() and not d.name.startswith('.')]
-            sample_ids = [d.name for d in sample_dirs]
-            sample_ids.sort()
-            print(f"Found {len(sample_ids)} samples: {sample_ids[:5]}...")
-        else:
-            print(f"Error: Unsupported dataset for multi-sample: {args.dataset}")
-            return
-        
-
-        output_dim = 3 + args.num_samples * 3 if args.use_gnll and not args.use_separate_ud else 3
-        # Setup model components (needed for all samples)
-        input_projection, decoder = build_projection_and_decoder(args, device, output_dim=output_dim)
-        decoder_input_dim = decoder.input_dim if hasattr(decoder, "input_dim") else args.projection_dim
-        
-        # Run optimization for each sample
-        all_results = []
-        for sample_idx, sample_id in enumerate(sample_ids):
-            print(f"\n{'='*60}")
-            print(f"Processing sample {sample_idx + 1}/{len(sample_ids)}: {sample_id}")
-            print(f"{'='*60}")
-            
-            # Create a FRESH model for each sample (this is the key fix!)
-            print(f"🔄 Creating fresh model for sample {sample_id} (sample {sample_idx + 1}/{len(sample_ids)})")
-            model = build_model(args, input_projection, decoder, device)
-            print(f"✅ Fresh model created and initialized")
-            
-            # Set the sample_id for this iteration
-            args.sample_id = sample_id
-            # Recompute dataset-specific roots per sample when needed
-            if args.dataset == "satburst_synth":
-                args.root_satburst_synth = satburst_scene_dir(args)
-            
-            # Get dataset for this specific sample
-            # Treat worldstrat_sweet/bitter like worldstrat_test for loader name
-            dataset_name_for_loader = args.dataset
-            if args.dataset in ["worldstrat_sweet", "worldstrat_bitter"]:
-                dataset_name_for_loader = "worldstrat_test"
-            train_data = get_dataset(args=args, name=dataset_name_for_loader, training_device=device)
-            
-            # Run optimization for this sample with the fresh model
-            result = optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, output_dir)
-            all_results.append(result)
-            
-            # Variance maps only when explicitly requested.
-            use_gnll_loss = model.use_gnll
-            if use_gnll_loss and args.visualize_variance:
-                sample_dir = output_dir / f"sample_{sample_idx:03d}"
-                print(f"\nGenerating variance visualizations for sample {sample_id}...")
-                torch.cuda.empty_cache()  # Clear GPU memory
-                visualize_lr_variance(model, train_data, device, sample_dir, sample_id)
-        
-        # Create summary visualizations
-        create_summary_visualization(all_results, output_dir)
+    if _uses_hetero_loss(args) and getattr(args, "use_gnll", False) and getattr(args, "use_laplace_nll", False):
+        print("Error: --use_gnll and --use_laplace_nll are mutually exclusive.")
         return
-        
-    elif args.dataset == "burst_synth":
-        # Set the path to SyntheticBurstVal
-        if 'DATA_DIR_ABSOLUTE' in os.environ:
-            args.root_burst_synth = os.environ['DATA_DIR_ABSOLUTE']
-        else:
-            args.root_burst_synth = "SyntheticBurstVal"
 
     train_data = get_dataset(args=args, name=args.dataset, training_device=device)
-    train_dataloader = DataLoader(train_data, batch_size=1, shuffle=False)
+    train_dataloader = build_train_dataloader(train_data, args)
+
+    # Expose dataset LR shape into args so resolve_hash_resolutions can auto-size the hashgrid.
+    if not getattr(args, "lr_height", 0):
+        args.lr_height = int(getattr(train_data, "lr_height", 0) or 0)
+    if not getattr(args, "lr_width", 0):
+        args.lr_width = int(getattr(train_data, "lr_width", 0) or 0)
 
     # Setup model
-    input_projection, decoder = build_projection_and_decoder(args, device)
+    output_dim = _hetero_output_dim(args)
+    input_projection, decoder = build_projection_and_decoder(args, device, output_dim=output_dim)
     model = build_model(args, input_projection, decoder, device)
+    init_hetero_region_scales(model, train_data, device)
     # model = NIR(input_projection, decoder, args.num_samples, use_gnll=args.use_gnll).to(device)
 
     # Setup optimizer
     optimizer = build_optimizer(model.parameters(), args)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.iters, eta_min=1e-6)
+    grad_scaler = build_grad_scaler(args, device)
+    print(
+        f"Gradient loss scaling: {'off' if grad_scaler is None else f'on (init {grad_scaler.get_scale():.0f})'}"
+        f", grad_accum={max(1, int(getattr(args, 'grad_accum', 1) or 1))}",
+        flush=True,
+    )
 
-    print(f"Starting training for {args.iters} iterations...")
+    print(f"Starting training for {args.iters} iterations (batch_size={args.batch_size})...")
+    tile_sampler = build_lr_tile_sampler(train_data, args)
+    cross_sampler = build_cross_frame_tile_sampler(train_data, args)
+    if cross_sampler is not None:
+        print(
+            f"LR tile sampling: mix={resolve_lr_tile_mix(args)} tile={args.lr_tile} "
+            f"tiles_per_step={cross_sampler.tiles_per_step} "
+            f"n_origins={len(cross_sampler.origins)} n_frames={cross_sampler.num_frames}",
+            flush=True,
+        )
+    elif tile_sampler is not None:
+        print(
+            f"LR tile sampling: mix=within tile={args.lr_tile} "
+            f"tiles_per_step={tile_sampler.tiles_per_step} "
+            f"n_origins={len(tile_sampler.origins)}",
+            flush=True,
+        )
+    _reset_peak_memory(device)
     
     # Training loop
     iteration = 0
     progress_bar = tqdm(total=args.iters, desc="Training")
     training_start_time = time.time()
     eval_every = int(getattr(args, "eval_every", 100) or 0)
+    skip_eval = bool(getattr(args, "skip_eval", False))
+    holdout_state = init_early_stop_state(
+        num_frames=int(getattr(train_data, "num_samples", len(train_data))),
+        lr_height=int(getattr(train_data, "lr_height", 0) or getattr(args, "lr_height", 0)),
+        lr_width=int(getattr(train_data, "lr_width", 0) or getattr(args, "lr_width", 0)),
+        spatial_holdout=float(getattr(args, "spatial_holdout", 0.0) or 0.0),
+        holdout_block=int(getattr(args, "holdout_block", 0) or 0),
+        patience=int(getattr(args, "early_stop_patience", 0) or 0),
+        min_iters=int(getattr(args, "early_stop_min_iters", 1000) or 0),
+        min_delta=float(getattr(args, "early_stop_min_delta", 0.0) or 0.0),
+        metric=str(getattr(args, "early_stop_metric", "lpips") or "lpips"),
+        max_regression=_resolve_early_stop_max_regression(args),
+        device=device,
+    )
+    val_every = _holdout_val_interval(args)
+    val_loss_list: list[float] = []
     
     # Lists to store PSNR and losses for plotting
     psnr_list = []
@@ -1689,7 +2134,9 @@ def main():
     iteration_list = []
     
     while iteration < args.iters:
-        for train_sample in train_dataloader:
+        stop_training = False
+        step_samples = [None] if cross_sampler is not None else train_dataloader
+        for train_sample in step_samples:
             if iteration >= args.iters:
                 break
                 
@@ -1702,8 +2149,14 @@ def main():
                 args,
                 variance_reg=args.variance_reg,
                 variance_smooth_reg=args.variance_smooth_reg,
+                holdout_state=holdout_state,
+                iteration=iteration + 1,
+                tile_sampler=tile_sampler,
+                cross_sampler=cross_sampler,
+                dataset=train_data,
+                grad_scaler=grad_scaler,
             )
-            
+
             # Check for NaN/Inf in losses and break if detected
             if (torch.isnan(train_losses['recon_loss']) or 
                 torch.isinf(train_losses['recon_loss']) or
@@ -1714,6 +2167,7 @@ def main():
                 print(f"Reconstruction loss: {scalars['recon_loss']}")
                 print(f"Total loss: {scalars['total_loss']}")
                 print("Stopping training to prevent further issues.")
+                stop_training = True
                 break
             
             scheduler.step()
@@ -1723,13 +2177,49 @@ def main():
             progress_bar.update(1)
             if iteration % LOG_POSTFIX_INTERVAL == 0:
                 scalars = _stack_train_loss_scalars(train_losses)
-                progress_bar.set_postfix(_train_postfix_from_scalars(scalars))
+                postfix = _train_postfix_from_scalars(scalars)
+                if val_loss_list:
+                    postfix["val"] = f"{val_loss_list[-1]:.4f}"
+                progress_bar.set_postfix(postfix)
             
-            # Periodic evaluation
-            if eval_every > 0 and not getattr(args, "skip_eval", False) and iteration % eval_every == 0:
+            if holdout_state is not None and iteration % val_every == 0:
+                scalars = _stack_train_loss_scalars(train_losses)
+                val_loss, eval_metrics, should_stop = _run_holdout_val_step(
+                    model=model,
+                    dataset=train_data,
+                    holdout_state=holdout_state,
+                    args=args,
+                    device=device,
+                    iteration=iteration,
+                    scalars=scalars,
+                    skip_hr_eval=_skip_periodic_hr_eval(args),
+                )
+                val_loss_list.append(val_loss)
+                if eval_metrics is not None:
+                    if model.use_gnll and (
+                        torch.isnan(train_losses['recon_loss'])
+                        or torch.isinf(train_losses['recon_loss'])
+                    ):
+                        print(
+                            f"WARNING: NaN/Inf detected in reconstruction loss "
+                            f"at iteration {iteration}"
+                        )
+                    iteration_list.append(iteration)
+                    psnr_list.append(eval_metrics["test_psnr"])
+                    ssim_list.append(eval_metrics["model_ssim"])
+                    lpips_list.append(eval_metrics["model_lpips"])
+                    recon_loss_list.append(scalars['recon_loss'])
+                    trans_loss_list.append(scalars['trans_loss'])
+                    total_loss_list.append(scalars['total_loss'])
+                if should_stop:
+                    stop_training = True
+                    break
+            elif eval_every > 0 and not _skip_periodic_hr_eval(args) and iteration % eval_every == 0:
                 scalars = _stack_train_loss_scalars(train_losses)
                 eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
-                eval_metrics = eval_hr_metrics(model, train_data, device, eval_autocast_dtype)
+                eval_metrics = eval_hr_metrics(
+                    model, train_data, device, eval_autocast_dtype, args=args, iteration=iteration
+                )
                 print(_format_periodic_eval_line(iteration, scalars, eval_metrics))
                 
                 # Additional debugging for GNLL
@@ -1748,8 +2238,26 @@ def main():
                 trans_loss_list.append(scalars['trans_loss'])
                 total_loss_list.append(scalars['total_loss'])
 
+        if stop_training:
+            break
+
     progress_bar.close()
     training_time = time.time() - training_start_time
+    peak_memory_gb = _peak_memory_gb(device)
+    if peak_memory_gb is not None:
+        print(f"Peak training GPU memory: {peak_memory_gb:.2f} GB", flush=True)
+
+    if holdout_state is not None and holdout_state.restore_best(model):
+        print(
+            f"Restored best holdout checkpoint from iter {holdout_state.best_iter} "
+            f"(val={holdout_state.best_val:.6f})"
+        )
+
+    final_iter = iteration
+    if holdout_state is not None and holdout_state.best_iter:
+        final_iter = int(holdout_state.best_iter)
+    final_kwargs = _final_schedule_kwargs(args, final_iter)
+    final_progress = final_kwargs.get("progress")
     
     # Final evaluation and save output
     model.eval()
@@ -1759,27 +2267,30 @@ def main():
         hr_image = train_data.get_original_hr().unsqueeze(0).to(device)
         sample_id = torch.tensor([0]).to(device)
         
-        if eval_autocast_dtype is not None:
-            with torch.autocast(device_type="cuda", dtype=eval_autocast_dtype):
-                if model.use_gnll:
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-                else:
-                    output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-        else:
-            if model.use_gnll:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
-            else:
-                output, _ = model(hr_coords, sample_id, scale_factor=1, training=False)
+        fwd_kwargs = {"lr_align_args": final_kwargs["lr_align_args"]}
+        output = _forward_hr_output(
+            model,
+            hr_coords,
+            hr_image,
+            sample_id,
+            device,
+            eval_autocast_dtype,
+            hr_render_tile=int(getattr(args, "hr_render_tile", 0) or 0),
+            **fwd_kwargs,
+        )
 
         # Unstandardize the output
         output = output * train_data.get_lr_std(0).to(device) + train_data.get_lr_mean(0).to(device)
-        
-        final_test_loss = F.mse_loss(output, hr_image).item()   
-        final_psnr = -10 * torch.log10(torch.tensor(final_test_loss)).item()
-        
-        # Convert tensors to numpy for saving as images
-        pred_np = output.squeeze().cpu().numpy()
-        gt_np = hr_image.squeeze().cpu().numpy()
+
+        pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
+        if pred_tensor.shape[-1] == 3:
+            pred_tensor = pred_tensor.permute(0, 3, 1, 2)
+        gt_tensor = hr_image if hr_image.ndim == 4 else hr_image.unsqueeze(0)
+        if gt_tensor.shape[-1] == 3:
+            gt_tensor = gt_tensor.permute(0, 3, 1, 2)
+
+        pred_np = pred_tensor.squeeze(0).permute(1, 2, 0).detach().cpu().numpy()
+        gt_np = gt_tensor.squeeze(0).permute(1, 2, 0).detach().cpu().numpy()
 
         # Build a 3-channel LR baseline image for visualization
         if hasattr(train_data, 'get_lr_sample_hwc'):
@@ -1801,7 +2312,7 @@ def main():
             if lr_original.ndim == 3:
                 if lr_original.shape[0] in (1, 3, 4):  # CHW format
                     lr_original = lr_original.transpose(1, 2, 0)  # Convert to HWC
-                    # Handle multi-frame case if needed (shouldn't happen for satburst_synth, but be safe)
+                    # Handle multi-frame case if needed
                     if lr_original.shape[2] > 3:
                         H, W, C = lr_original.shape
                         if C % 3 == 0:
@@ -1832,22 +2343,28 @@ def main():
         print("Skipping alignment (disabled to avoid memory issues)")
         pred_aligned = pred_tensor
         bilinear_aligned = bilinear_tensor
-        
-        # PSNR - using aligned tensors for fair comparison
-        model_psnr = peak_signal_noise_ratio(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_psnr = peak_signal_noise_ratio(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
 
-        # SSIM - using aligned tensors for fair comparison
-        model_ssim = ssim(pred_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
-        bilinear_ssim = ssim(bilinear_aligned.cpu(), gt_tensor.cpu(), data_range=1.0).item()
+        eval_mask_hw = _get_hr_eval_mask(train_data)
+        if eval_mask_hw is not None:
+            print(
+                f"Using masked HR eval on {train_data.hr_valid_fraction * 100:.1f}% valid GT pixels"
+            )
 
-        # LPIPS (expects [-1,1] range) - using aligned tensors for fair comparison
         lpips_fn = get_lpips_model(device)
-        pred_lpips = lpips_fn((pred_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
-        bilinear_lpips = lpips_fn((bilinear_aligned*2-1).to(device), (gt_tensor*2-1).to(device)).item()
+        frame_metrics = _compute_full_frame_metrics(
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, eval_mask_hw
+        )
+        final_test_loss = frame_metrics["test_loss"]
+        final_psnr = frame_metrics["test_psnr"]
+        model_psnr = frame_metrics["model_psnr"]
+        bilinear_psnr = frame_metrics["bilinear_psnr"]
+        model_ssim = frame_metrics["model_ssim"]
+        bilinear_ssim = frame_metrics["bilinear_ssim"]
+        pred_lpips = frame_metrics["model_lpips"]
+        bilinear_lpips = frame_metrics["bilinear_lpips"]
 
         fixed_spot = _maybe_fixed_spot_metrics(
-            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args
+            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args, dataset=train_data
         )
         if fixed_spot:
             print(
@@ -1895,6 +2412,21 @@ def main():
         )
         comparison_path = sample_dir / "comparison.png"
         output_path = comparison_path
+
+        if not bool(getattr(args, "no_qgis_export", False)):
+            try:
+                qgis_dir = sample_dir / "qgis"
+                written = export_qgis_layers(
+                    qgis_dir,
+                    hr_gt_hwc=gt_np,
+                    sr_pred_hwc=pred_aligned_np,
+                    s2_bilinear_hwc=bilinear_aligned_np,
+                    dataset=train_data,
+                    lr_hwc=lr_original,
+                )
+                print(f"QGIS GeoTIFFs written to {qgis_dir}: {', '.join(sorted(written))}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"WARN: QGIS GeoTIFF export skipped: {exc}")
         
     print(f"\nFinal Results:")
     print(f"Test Loss: {final_test_loss:.6f}")
@@ -1992,16 +2524,56 @@ def main():
         'dataset': args.dataset,
         'sample_id': str(args.sample_id),
         'run_name': getattr(args, "run_name", None),
-        'lr_degradation': str(getattr(args, "lr_degradation", "area")),
+        'lr_degradation': str(getattr(args, "lr_degradation", "s2_psf")),
+        'recon_loss': str(getattr(args, "recon_loss", "mse")),
+        'use_gnll': bool(getattr(args, "use_gnll", False)),
+        'use_laplace_nll': bool(getattr(args, "use_laplace_nll", False)),
+        'hetero_scale': str(getattr(args, "hetero_scale", "pixel")),
+        'hetero_region_size': int(getattr(args, "hetero_region_size", 4)),
+        'hetero_loss': (
+            'laplace' if getattr(args, "use_laplace_nll", False)
+            else 'gaussian' if getattr(args, "use_gnll", False)
+            else None
+        ),
         'downsampling_factor': args.df,
         'model': args.model,
+        'input_projection': args.input_projection,
         'iterations': args.iters,
+        'completed_iters': iteration,
         'learning_rate': args.learning_rate,
         'model_psnr': model_psnr,
         'bilinear_psnr': bilinear_psnr,
         'final_test_psnr': final_psnr,
-        'completed_iters': iteration,
         'training_time_seconds': training_time,
+        'peak_memory_gb': peak_memory_gb,
+        'lr_tile': int(getattr(args, "lr_tile", 0) or 0),
+        'lr_tiles_per_step': raw_tiles_per_step(args),
+        'lr_tile_mix': resolve_lr_tile_mix(args),
+        'spatial_holdout': float(getattr(args, "spatial_holdout", 0.0) or 0.0),
+        'holdout_block': int(
+            (holdout_state.holdout_block if holdout_state is not None else 0)
+            or getattr(args, "holdout_block", 0)
+            or 0
+        ),
+        'schedule_horizon_iters': int(getattr(args, "schedule_horizon_iters", 3000) or 3000),
+        'psf_curriculum': str(getattr(args, "psf_curriculum", "none") or "none"),
+        'psf_sigma_schedule': str(getattr(args, "psf_sigma_schedule", "none") or "none"),
+        'early_stop': (
+            {
+                **holdout_state.summary(),
+                'patience': int(getattr(args, "early_stop_patience", 0) or 0),
+                'min_iters': int(getattr(args, "early_stop_min_iters", 0) or 0),
+                'min_delta': float(getattr(args, "early_stop_min_delta", 0.0) or 0.0),
+                'max_regression': _resolve_early_stop_max_regression(args),
+                'metric': str(getattr(args, "early_stop_metric", "lpips") or "lpips"),
+            }
+            if holdout_state is not None
+            else None
+        ),
+        'eval_mask': {
+            'masked': bool(getattr(train_data, 'use_masked_eval', False)),
+            'valid_fraction': float(getattr(train_data, 'hr_valid_fraction', 1.0)),
+        },
         'psnr': {
             'model': model_psnr,
             'bilinear': bilinear_psnr,
@@ -2031,6 +2603,7 @@ def main():
                 'recon_loss': recon_loss_list,
                 'trans_loss': trans_loss_list,
                 'total_loss': total_loss_list,
+                'val_loss': val_loss_list if holdout_state is not None else [],
             },
         }
     }
@@ -2097,7 +2670,7 @@ def main():
     
     # Generate variance visualizations only when explicitly requested.
     use_gnll_loss = model.use_gnll
-    if args.visualize_variance and use_gnll_loss and not args.multi_sample:
+    if args.visualize_variance and use_gnll_loss:
         print("Generating variance visualizations for each LR sample...")
         # Clear GPU memory before variance visualization
         torch.cuda.empty_cache()

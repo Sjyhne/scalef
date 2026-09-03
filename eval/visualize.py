@@ -1,4 +1,4 @@
-"""SR evaluation figures: full-frame comparisons, fixed-spot crops, multi-sample summaries."""
+"""SR evaluation figures: full-frame comparisons and fixed-spot crops."""
 
 from __future__ import annotations
 
@@ -15,6 +15,17 @@ from matplotlib.gridspec import GridSpec
 
 def _clip01(arr: np.ndarray) -> np.ndarray:
     return np.clip(np.asarray(arr, dtype=np.float32), 0.0, 1.0)
+
+
+def _shared_display_stretch(*arrays: np.ndarray, p: float = 99.5) -> list[np.ndarray]:
+    """Stretch panels with one vmax so dark S2 reflectance is visible without per-image color shifts."""
+    vmax = 0.0
+    for arr in arrays:
+        if arr.size == 0:
+            continue
+        vmax = max(vmax, float(np.percentile(arr, p)))
+    vmax = max(vmax, 1e-6)
+    return [_clip01(np.asarray(arr, dtype=np.float32) / vmax) for arr in arrays]
 
 
 def _upscale_spot(arr_hwc: np.ndarray, target_px: int = 256) -> np.ndarray:
@@ -46,6 +57,92 @@ def _draw_spot_rect(ax, slices: list[int] | tuple[int, ...], *, color: str = "#F
     ax.add_patch(rect)
 
 
+def _metric_title(
+    label: str,
+    *,
+    psnr: float | None = None,
+    ssim: float | None = None,
+    lpips: float | None = None,
+    extra: str = "",
+) -> str:
+    lines = [label]
+    if psnr is not None:
+        lines.append(f"PSNR {psnr:.2f} dB")
+    if ssim is not None:
+        lines.append(f"SSIM {ssim:.3f}")
+    if lpips is not None:
+        lines.append(f"LPIPS {lpips:.3f}")
+    if extra:
+        lines.append(extra)
+    return "\n".join(lines)
+
+
+def _metrics_table_text(
+    image_metrics: dict[str, Any],
+    fixed_spot: dict[str, Any] | None = None,
+) -> str:
+    rows = [
+        ("Metric", "Bilinear", "Model", "Δ"),
+        (
+            "PSNR (dB)",
+            f"{image_metrics['bilinear_psnr']:.2f}",
+            f"{image_metrics['model_psnr']:.2f}",
+            f"{image_metrics['model_psnr'] - image_metrics['bilinear_psnr']:+.2f}",
+        ),
+        (
+            "SSIM",
+            f"{image_metrics['bilinear_ssim']:.3f}",
+            f"{image_metrics['model_ssim']:.3f}",
+            f"{image_metrics['model_ssim'] - image_metrics['bilinear_ssim']:+.3f}",
+        ),
+        (
+            "LPIPS ↓",
+            f"{image_metrics['bilinear_lpips']:.3f}",
+            f"{image_metrics['model_lpips']:.3f}",
+            f"{image_metrics['bilinear_lpips'] - image_metrics['model_lpips']:+.3f}",
+        ),
+    ]
+    if fixed_spot:
+        rows.append(("", "", "", ""))
+        rows.append(
+            (
+                f"Spot PSNR ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']})",
+                f"{fixed_spot['bilinear_psnr']:.2f}",
+                f"{fixed_spot['model_psnr']:.2f}",
+                f"{fixed_spot['psnr_improvement']:+.2f}",
+            )
+        )
+        rows.append(
+            (
+                "Spot SSIM",
+                f"{fixed_spot['bilinear_ssim']:.3f}",
+                f"{fixed_spot['model_ssim']:.3f}",
+                f"{fixed_spot['ssim_improvement']:+.3f}",
+            )
+        )
+        rows.append(
+            (
+                "Spot LPIPS ↓",
+                f"{fixed_spot['bilinear_lpips']:.3f}",
+                f"{fixed_spot['model_lpips']:.3f}",
+                f"{fixed_spot['lpips_improvement']:+.3f}",
+            )
+        )
+
+    col_w = [18, 10, 10, 8]
+    lines = []
+    for i, row in enumerate(rows):
+        if not any(row):
+            lines.append("")
+            continue
+        if i == 0:
+            lines.append("".join(v.ljust(col_w[j]) for j, v in enumerate(row)))
+            lines.append("-" * sum(col_w))
+        else:
+            lines.append("".join(str(v).ljust(col_w[j]) for j, v in enumerate(row)))
+    return "\n".join(lines)
+
+
 def save_eval_visualizations(
     output_dir: Path,
     *,
@@ -57,7 +154,7 @@ def save_eval_visualizations(
     fixed_spot: dict[str, Any] | None = None,
     sample_label: str = "",
 ) -> None:
-    """Write full SR comparison + fixed-spot crop figures into ``output_dir``."""
+    """Write SR comparison figures and a metrics summary into ``output_dir``."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -65,50 +162,62 @@ def save_eval_visualizations(
     bil = _clip01(bilinear_hwc)
     pred = _clip01(pred_hwc)
     gt = _clip01(gt_hwc)
+    lr, bil, pred, gt = _shared_display_stretch(lr, bil, pred, gt)
 
-    model_psnr = float(image_metrics.get("model_psnr", 0.0))
-    bilinear_psnr = float(image_metrics.get("bilinear_psnr", 0.0))
     spot_slices = fixed_spot.get("slices_hr") if fixed_spot else None
-
     prefix = f"{sample_label} — " if sample_label else ""
+    metrics_text = _metrics_table_text(image_metrics, fixed_spot)
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-    axes[0, 0].imshow(lr)
-    axes[0, 0].set_title(f"{prefix}LR input", fontsize=13, fontweight="bold")
-    axes[0, 0].axis("off")
+    fig = plt.figure(figsize=(18, 5.5))
+    gs = GridSpec(1, 5, figure=fig, width_ratios=[1.0, 1.0, 1.0, 1.0, 0.72], wspace=0.08)
 
-    axes[0, 1].imshow(bil)
-    axes[0, 1].set_title(
-        f"Bilinear\nfull PSNR {bilinear_psnr:.2f} dB",
-        fontsize=13,
-        fontweight="bold",
+    panels = [
+        (gs[0, 0], lr, f"{prefix}LR input", None, None, None),
+        (
+            gs[0, 1],
+            bil,
+            "Bilinear upsample",
+            image_metrics.get("bilinear_psnr"),
+            image_metrics.get("bilinear_ssim"),
+            image_metrics.get("bilinear_lpips"),
+        ),
+        (
+            gs[0, 2],
+            pred,
+            "Model SR",
+            image_metrics.get("model_psnr"),
+            image_metrics.get("model_ssim"),
+            image_metrics.get("model_lpips"),
+        ),
+        (gs[0, 3], gt, f"{prefix}HR ground truth", None, None, None),
+    ]
+    for spec, img, label, psnr, ssim, lpips in panels:
+        ax = fig.add_subplot(spec)
+        ax.imshow(img)
+        ax.set_title(_metric_title(label, psnr=psnr, ssim=ssim, lpips=lpips), fontsize=11, fontweight="bold")
+        ax.axis("off")
+        if spot_slices and label != f"{prefix}LR input":
+            _draw_spot_rect(ax, spot_slices)
+
+    ax_tbl = fig.add_subplot(gs[0, 4])
+    ax_tbl.axis("off")
+    ax_tbl.text(
+        0.0,
+        1.0,
+        "Full-frame metrics\n\n" + metrics_text,
+        transform=ax_tbl.transAxes,
+        va="top",
+        ha="left",
+        fontsize=9.5,
+        family="monospace",
+        bbox={"boxstyle": "round,pad=0.4", "facecolor": "#f7f7f7", "edgecolor": "#cccccc"},
     )
-    axes[0, 1].axis("off")
-    if spot_slices:
-        _draw_spot_rect(axes[0, 1], spot_slices)
 
-    axes[1, 0].imshow(pred)
-    spot_psnr = ""
-    if fixed_spot:
-        spot_psnr = f"\nspot PSNR {fixed_spot['model_psnr']:.2f} dB"
-    axes[1, 0].set_title(
-        f"Model SR\nfull PSNR {model_psnr:.2f} dB{spot_psnr}",
-        fontsize=13,
-        fontweight="bold",
-    )
-    axes[1, 0].axis("off")
-    if spot_slices:
-        _draw_spot_rect(axes[1, 0], spot_slices)
-
-    axes[1, 1].imshow(gt)
-    axes[1, 1].set_title(f"{prefix}HR ground truth", fontsize=13, fontweight="bold")
-    axes[1, 1].axis("off")
-    if spot_slices:
-        _draw_spot_rect(axes[1, 1], spot_slices)
-
-    plt.tight_layout(pad=2.0)
-    plt.savefig(output_dir / "comparison.png", bbox_inches="tight", pad_inches=0.1, dpi=300)
+    fig.suptitle(f"{prefix}Super-resolution comparison", fontsize=14, fontweight="bold", y=1.02)
+    plt.savefig(output_dir / "comparison.png", bbox_inches="tight", pad_inches=0.12, dpi=300)
     plt.close()
+
+    (output_dir / "metrics_table.txt").write_text(metrics_text + "\n", encoding="utf-8")
 
     for name, arr in (
         ("model_output_aligned.png", pred),
@@ -124,6 +233,7 @@ def save_eval_visualizations(
         plt.close()
 
     if not fixed_spot or not spot_slices:
+        _save_metrics_card(output_dir, sample_label, image_metrics, fixed_spot=None)
         return
 
     bil_s = _upscale_spot(_crop_hwc(bil, spot_slices))
@@ -132,32 +242,60 @@ def save_eval_visualizations(
     err_bil = np.abs(bil_s - gt_s).mean(axis=-1)
     err_pred = np.abs(pred_s - gt_s).mean(axis=-1)
 
-    fig = plt.figure(figsize=(16, 10))
+    fig = plt.figure(figsize=(16, 9))
     gs = GridSpec(2, 4, figure=fig, height_ratios=[1.0, 0.85])
 
-    panels = [
-        (gs[0, 0], bil_s, f"Bilinear spot\nPSNR {fixed_spot['bilinear_psnr']:.2f} dB"),
-        (gs[0, 1], pred_s, f"Model spot\nPSNR {fixed_spot['model_psnr']:.2f} dB"),
-        (gs[0, 2], gt_s, f"GT spot\n{fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR px"),
-        (gs[0, 3], np.clip(err_pred - err_bil, 0, 1), f"Δ|err| (bil−model)\nSSIM {fixed_spot['model_ssim']:.3f}"),
+    spot_panels = [
+        (
+            gs[0, 0],
+            bil_s,
+            _metric_title(
+                "Bilinear spot",
+                psnr=fixed_spot["bilinear_psnr"],
+                ssim=fixed_spot["bilinear_ssim"],
+                lpips=fixed_spot["bilinear_lpips"],
+            ),
+        ),
+        (
+            gs[0, 1],
+            pred_s,
+            _metric_title(
+                "Model spot",
+                psnr=fixed_spot["model_psnr"],
+                ssim=fixed_spot["model_ssim"],
+                lpips=fixed_spot["model_lpips"],
+            ),
+        ),
+        (
+            gs[0, 2],
+            gt_s,
+            f"GT spot\n{fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR px",
+        ),
+        (
+            gs[0, 3],
+            np.clip(err_pred - err_bil, 0, 1),
+            "Δ|err| (model better → brighter)",
+        ),
     ]
-    for spec, img, title in panels:
+    for spec, img, title in spot_panels:
         ax = fig.add_subplot(spec)
         cmap = "magma" if img.ndim == 2 else None
         ax.imshow(img, cmap=cmap)
-        ax.set_title(title, fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=11, fontweight="bold")
         ax.axis("off")
 
     ax_b = fig.add_subplot(gs[1, 0:2])
     ax_b.imshow(err_bil, cmap="magma", vmin=0, vmax=max(0.05, err_bil.max()))
-    ax_b.set_title(f"Bilinear |error|  MAE {fixed_spot['bilinear_mae']:.4f}", fontweight="bold")
+    ax_b.set_title(
+        _metric_title("Bilinear |error|", extra=f"MAE {fixed_spot['bilinear_mae']:.4f}"),
+        fontweight="bold",
+    )
     ax_b.axis("off")
 
     ax_m = fig.add_subplot(gs[1, 2:4])
     ax_m.imshow(err_pred, cmap="magma", vmin=0, vmax=max(0.05, err_pred.max()))
     ax_m.set_title(
-        f"Model |error|  MAE {fixed_spot['model_mae']:.4f}  "
-        f"LPIPS {fixed_spot['model_lpips']:.3f}",
+        _metric_title("Model |error|", extra=f"MAE {fixed_spot['model_mae']:.4f}"),
         fontweight="bold",
     )
     ax_m.axis("off")
@@ -172,191 +310,324 @@ def save_eval_visualizations(
     plt.savefig(output_dir / "spot_comparison.png", bbox_inches="tight", pad_inches=0.1, dpi=300)
     plt.close()
 
-    metrics_path = output_dir / "spot_metrics.json"
-    metrics_path.write_text(json.dumps(fixed_spot, indent=2), encoding="utf-8")
+    (output_dir / "spot_metrics.json").write_text(json.dumps(fixed_spot, indent=2), encoding="utf-8")
+
+    _save_results_summary(
+        output_dir,
+        lr=lr,
+        bil=bil,
+        pred=pred,
+        gt=gt,
+        bil_s=bil_s,
+        pred_s=pred_s,
+        gt_s=gt_s,
+        err_bil=err_bil,
+        err_pred=err_pred,
+        image_metrics=image_metrics,
+        fixed_spot=fixed_spot,
+        spot_slices=spot_slices,
+        sample_label=sample_label,
+        metrics_text=metrics_text,
+    )
+    _save_metrics_card(output_dir, sample_label, image_metrics, fixed_spot)
 
 
-def create_spot_summary_visualization(all_results: list[dict], output_dir: Path) -> None:
-    """Bar charts of fixed-spot metrics across samples."""
-    rows = []
-    for r in all_results:
-        spot = (r.get("image_metrics") or {}).get("fixed_spot") or {}
-        if not spot:
-            continue
-        rows.append(
-            {
-                "idx": r.get("sample_idx", len(rows)),
-                "label": str((r.get("sample_info") or {}).get("sample_id", r.get("sample_idx"))),
-                **spot,
-            }
-        )
-    if not rows:
-        return
-
-    output_dir = Path(output_dir)
-    idx = [row["idx"] for row in rows]
-    labels = [row["label"] for row in rows]
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    x = np.arange(len(rows))
-
-    axes[0, 0].bar(x - 0.15, [r["model_psnr"] for r in rows], 0.3, label="Model", color="#2563eb")
-    axes[0, 0].bar(x + 0.15, [r["bilinear_psnr"] for r in rows], 0.3, label="Bilinear", color="#f97316")
-    axes[0, 0].set_xticks(x, labels, rotation=45, ha="right")
-    axes[0, 0].set_ylabel("PSNR (dB)")
-    axes[0, 0].set_title("Fixed-spot PSNR")
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-
-    imp = [r["psnr_improvement"] for r in rows]
-    axes[0, 1].bar(x, imp, color=["#16a34a" if v >= 0 else "#dc2626" for v in imp])
-    axes[0, 1].axhline(0, color="black", linewidth=0.8)
-    axes[0, 1].set_xticks(x, labels, rotation=45, ha="right")
-    axes[0, 1].set_ylabel("Δ PSNR (dB)")
-    axes[0, 1].set_title("Spot PSNR improvement (model − bilinear)")
-    axes[0, 1].grid(True, alpha=0.3)
-
-    axes[1, 0].bar(x - 0.15, [r["model_ssim"] for r in rows], 0.3, label="Model", color="#7c3aed")
-    axes[1, 0].bar(x + 0.15, [r["bilinear_ssim"] for r in rows], 0.3, label="Bilinear", color="#f97316")
-    axes[1, 0].set_xticks(x, labels, rotation=45, ha="right")
-    axes[1, 0].set_ylabel("SSIM")
-    axes[1, 0].set_title("Fixed-spot SSIM")
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-
-    axes[1, 1].bar(x - 0.15, [r["model_lpips"] for r in rows], 0.3, label="Model", color="#92400e")
-    axes[1, 1].bar(x + 0.15, [r["bilinear_lpips"] for r in rows], 0.3, label="Bilinear", color="#f97316")
-    axes[1, 1].set_xticks(x, labels, rotation=45, ha="right")
-    axes[1, 1].set_ylabel("LPIPS")
-    axes[1, 1].set_title("Fixed-spot LPIPS (lower is better)")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(output_dir / "spot_summary_metrics.png", bbox_inches="tight", pad_inches=0.1, dpi=300)
+def _save_metrics_card(
+    output_dir: Path,
+    sample_label: str,
+    image_metrics: dict[str, Any],
+    fixed_spot: dict[str, Any] | None,
+) -> None:
+    prefix = f"{sample_label} — " if sample_label else ""
+    metrics_text = _metrics_table_text(image_metrics, fixed_spot)
+    fig, ax = plt.subplots(figsize=(6.5, 4.5 if fixed_spot else 3.2))
+    ax.axis("off")
+    ax.text(
+        0.5,
+        0.5,
+        metrics_text,
+        transform=ax.transAxes,
+        va="center",
+        ha="center",
+        fontsize=11,
+        family="monospace",
+    )
+    ax.set_title(f"{prefix}Evaluation metrics", fontsize=13, fontweight="bold", pad=12)
+    plt.savefig(output_dir / "metrics_card.png", bbox_inches="tight", pad_inches=0.3, dpi=200)
     plt.close()
 
 
-def create_sr_sample_grid(output_dir: Path, all_results: list[dict], *, thumb_px: int = 256) -> None:
-    """Mosaic per-sample SR outputs (spot crop if available, else center crop)."""
-    tiles: list[tuple[str, np.ndarray, np.ndarray, np.ndarray]] = []
-    for r in all_results:
-        idx = int(r.get("sample_idx", len(tiles)))
-        sample_dir = Path(output_dir) / f"sample_{idx:03d}"
-        pred_path = sample_dir / "model_output_aligned.png"
-        gt_path = sample_dir / "ground_truth.png"
-        if not pred_path.is_file() or not gt_path.is_file():
-            continue
-        pred = cv2.cvtColor(cv2.imread(str(pred_path)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        gt = cv2.cvtColor(cv2.imread(str(gt_path)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        spot = (r.get("image_metrics") or {}).get("fixed_spot") or {}
-        if spot.get("slices_hr"):
-            pred = _crop_hwc(pred, spot["slices_hr"])
-            gt = _crop_hwc(gt, spot["slices_hr"])
+def _save_results_summary(
+    output_dir: Path,
+    *,
+    lr: np.ndarray,
+    bil: np.ndarray,
+    pred: np.ndarray,
+    gt: np.ndarray,
+    bil_s: np.ndarray,
+    pred_s: np.ndarray,
+    gt_s: np.ndarray,
+    err_bil: np.ndarray,
+    err_pred: np.ndarray,
+    image_metrics: dict[str, Any],
+    fixed_spot: dict[str, Any],
+    spot_slices: list[int] | tuple[int, ...],
+    sample_label: str,
+    metrics_text: str,
+) -> None:
+    prefix = f"{sample_label} — " if sample_label else ""
+    fig = plt.figure(figsize=(20, 11))
+    gs = GridSpec(
+        3,
+        5,
+        figure=fig,
+        height_ratios=[1.35, 1.0, 0.55],
+        width_ratios=[1.0, 1.0, 1.0, 1.0, 0.75],
+        hspace=0.28,
+        wspace=0.06,
+    )
+
+    full_panels = [
+        (gs[0, 0], lr, f"{prefix}LR input", None, None, None),
+        (
+            gs[0, 1],
+            bil,
+            "Bilinear",
+            image_metrics["bilinear_psnr"],
+            image_metrics["bilinear_ssim"],
+            image_metrics["bilinear_lpips"],
+        ),
+        (
+            gs[0, 2],
+            pred,
+            "Model SR",
+            image_metrics["model_psnr"],
+            image_metrics["model_ssim"],
+            image_metrics["model_lpips"],
+        ),
+        (gs[0, 3], gt, f"{prefix}HR GT", None, None, None),
+    ]
+    for spec, img, label, psnr, ssim, lpips in full_panels:
+        ax = fig.add_subplot(spec)
+        ax.imshow(img)
+        ax.set_title(_metric_title(label, psnr=psnr, ssim=ssim, lpips=lpips), fontsize=10, fontweight="bold")
+        ax.axis("off")
+        if label != f"{prefix}LR input":
+            _draw_spot_rect(ax, spot_slices)
+
+    spot_panels = [
+        (gs[1, 0], bil_s, "Spot bilinear", fixed_spot["bilinear_psnr"], fixed_spot["bilinear_ssim"], fixed_spot["bilinear_lpips"]),
+        (gs[1, 1], pred_s, "Spot model", fixed_spot["model_psnr"], fixed_spot["model_ssim"], fixed_spot["model_lpips"]),
+        (gs[1, 2], gt_s, f"Spot GT ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']})", None, None, None),
+        (gs[1, 3], err_pred, "Model |error|", None, None, None),
+    ]
+    for spec, img, label, psnr, ssim, lpips in spot_panels:
+        ax = fig.add_subplot(spec)
+        cmap = "magma" if img.ndim == 2 else None
+        vmax = max(0.05, err_pred.max()) if img.ndim == 2 else None
+        ax.imshow(img, cmap=cmap, vmin=0 if img.ndim == 2 else None, vmax=vmax)
+        if psnr is not None:
+            ax.set_title(_metric_title(label, psnr=psnr, ssim=ssim, lpips=lpips), fontsize=10, fontweight="bold")
         else:
-            cy, cx = pred.shape[0] // 2, pred.shape[1] // 2
-            half = min(pred.shape[0], pred.shape[1]) // 8
-            pred = pred[cy - half : cy + half, cx - half : cx + half]
-            gt = gt[cy - half : cy + half, cx - half : cx + half]
-        pred = _upscale_spot(pred, thumb_px)
-        gt = _upscale_spot(gt, thumb_px)
-        label = str((r.get("sample_info") or {}).get("sample_id", idx))
-        tiles.append((label, pred, gt, np.abs(pred - gt).mean(axis=-1)))
+            ax.set_title(label, fontsize=10, fontweight="bold")
+        ax.axis("off")
 
-    if not tiles:
+    ax_err = fig.add_subplot(gs[1, 4])
+    ax_err.imshow(err_bil, cmap="magma", vmin=0, vmax=max(0.05, err_bil.max()))
+    ax_err.set_title("Bilinear |error|", fontsize=10, fontweight="bold")
+    ax_err.axis("off")
+
+    ax_tbl = fig.add_subplot(gs[2, :])
+    ax_tbl.axis("off")
+    ax_tbl.text(
+        0.5,
+        0.85,
+        metrics_text,
+        transform=ax_tbl.transAxes,
+        va="top",
+        ha="center",
+        fontsize=11,
+        family="monospace",
+        bbox={"boxstyle": "round,pad=0.5", "facecolor": "#f7f7f7", "edgecolor": "#cccccc"},
+    )
+
+    fig.suptitle(
+        f"{prefix}Results overview — full frame + center spot",
+        fontsize=15,
+        fontweight="bold",
+        y=0.98,
+    )
+    plt.savefig(output_dir / "results_summary.png", bbox_inches="tight", pad_inches=0.12, dpi=200)
+    plt.close()
+
+
+def save_all_cities_metrics_summary(
+    city_metrics: list[tuple[str, dict[str, Any]]],
+    output_path: Path,
+) -> None:
+    if not city_metrics:
         return
 
-    n = len(tiles)
-    cols = min(4, n)
-    rows = int(np.ceil(n / cols))
-    fig, axes = plt.subplots(rows, cols * 3, figsize=(cols * 4.5, rows * 3.5))
-    if rows == 1 and cols * 3 == 1:
-        axes = np.array([[axes]])
-    elif rows == 1:
-        axes = axes.reshape(1, -1)
-    elif cols * 3 == 1:
-        axes = axes.reshape(-1, 1)
-
-    for i, (label, pred, gt, err) in enumerate(tiles):
-        r, c0 = divmod(i, cols)
-        base = c0 * 3
-        for j, (img, title) in enumerate(
-            (
-                (pred, f"{label}\nmodel"),
-                (gt, "GT"),
-                (err, "|err|"),
-            )
-        ):
-            ax = axes[r, base + j]
-            ax.imshow(img if img.ndim == 3 else img, cmap=None if img.ndim == 3 else "magma")
-            ax.set_title(title, fontsize=9)
-            ax.axis("off")
-
-    total_axes = rows * cols * 3
-    for k in range(len(tiles) * 3, total_axes):
-        r, c = divmod(k, cols * 3)
-        axes[r, c].axis("off")
-
-    fig.suptitle("SR spot outputs across samples", fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    plt.savefig(Path(output_dir) / "sr_spot_grid.png", bbox_inches="tight", pad_inches=0.1, dpi=200)
-    plt.close()
-
-
-def visualize_benchmark_runs(summary_json: Path, out_dir: Path | None = None) -> Path:
-    """Plot fixed-spot metrics vs LR size from ``benchmark_psf_datasets`` summary.json."""
-    summary_json = Path(summary_json)
-    data = json.loads(summary_json.read_text(encoding="utf-8"))
-    results = data.get("results") or []
+    headers = ["City", "PSNR", "SSIM", "LPIPS", "Spot PSNR", "Spot SSIM", "Spot LPIPS"]
     rows = []
-    for row in results:
-        spot = row.get("fixed_spot") or {}
-        if not spot and row.get("spot_model_psnr") is not None:
-            spot = {
-                "model_psnr": row.get("spot_model_psnr"),
-                "bilinear_psnr": row.get("spot_bilinear_psnr"),
-                "psnr_improvement": row.get("spot_psnr_improvement"),
-                "model_ssim": row.get("spot_model_ssim"),
-                "model_lpips": row.get("spot_model_lpips"),
-            }
-        if not spot:
-            continue
-        rows.append({**row, "spot": spot})
-    if not rows:
-        raise ValueError(f"No fixed_spot metrics in {summary_json}")
+    for city, m in city_metrics:
+        spot = m.get("fixed_spot") or {}
+        rows.append(
+            [
+                city,
+                f"{m['psnr']['model']:.2f}",
+                f"{m['ssim']['model']:.3f}",
+                f"{m['lpips']['model']:.3f}",
+                f"{spot.get('model_psnr', float('nan')):.2f}" if spot else "—",
+                f"{spot.get('model_ssim', float('nan')):.3f}" if spot else "—",
+                f"{spot.get('model_lpips', float('nan')):.3f}" if spot else "—",
+            ]
+        )
 
-    out_dir = Path(out_dir or summary_json.parent)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    by_lr: dict[int, list[dict]] = {}
-    for row in rows:
-        lr = int(row.get("lr_size") or 0)
-        by_lr.setdefault(lr, []).append(row)
-
-    lr_sizes = sorted(by_lr)
-    model_psnr = [np.mean([r["spot"]["model_psnr"] for r in by_lr[s]]) for s in lr_sizes]
-    bil_psnr = [np.mean([r["spot"]["bilinear_psnr"] for r in by_lr[s]]) for s in lr_sizes]
-    full_psnr = [np.mean([r.get("model_psnr") or np.nan for r in by_lr[s]]) for s in lr_sizes]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    axes[0].plot(lr_sizes, model_psnr, "o-", label="Model spot PSNR", linewidth=2)
-    axes[0].plot(lr_sizes, bil_psnr, "s--", label="Bilinear spot PSNR", linewidth=2)
-    axes[0].set_xlabel("LR size (px)")
-    axes[0].set_ylabel("PSNR (dB)")
-    axes[0].set_title("Fixed-spot PSNR vs LR context size")
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
-
-    axes[1].plot(lr_sizes, model_psnr, "o-", label="Spot PSNR", linewidth=2)
-    axes[1].plot(lr_sizes, full_psnr, "^--", label="Full-frame PSNR", linewidth=2)
-    axes[1].set_xlabel("LR size (px)")
-    axes[1].set_ylabel("PSNR (dB)")
-    axes[1].set_title("Spot vs full-frame model PSNR")
-    axes[1].grid(True, alpha=0.3)
-    axes[1].legend()
-
-    plt.tight_layout()
-    out_path = out_dir / "spot_vs_lr_size.png"
-    plt.savefig(out_path, bbox_inches="tight", pad_inches=0.1, dpi=300)
+    fig, ax = plt.subplots(figsize=(12, 0.55 * (len(rows) + 2)))
+    ax.axis("off")
+    table = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.0, 1.6)
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_facecolor("#4472C4")
+            cell.set_text_props(color="white", fontweight="bold")
+        elif row % 2 == 0:
+            cell.set_facecolor("#f2f2f2")
+    ax.set_title(
+        "All cities — model metrics (full frame + center spot)",
+        fontsize=14,
+        fontweight="bold",
+        pad=16,
+    )
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.2, dpi=200)
     plt.close()
-    return out_path
+
+
+def load_metrics_from_json(metrics_path: Path) -> dict[str, Any]:
+    data = json.loads(Path(metrics_path).read_text(encoding="utf-8"))
+    image_metrics = {
+        "model_psnr": float(data["psnr"]["model"]),
+        "bilinear_psnr": float(data["psnr"]["bilinear"]),
+        "model_ssim": float(data["ssim"]["model"]),
+        "bilinear_ssim": float(data["ssim"]["bilinear"]),
+        "model_lpips": float(data["lpips"]["model"]),
+        "bilinear_lpips": float(data["lpips"]["bilinear"]),
+    }
+    return {"image_metrics": image_metrics, "fixed_spot": data.get("fixed_spot"), "raw": data}
+
+
+def regenerate_visualizations_from_dir(result_dir: Path, *, sample_label: str = "") -> None:
+    """Rebuild comparison figures from saved PNGs + metrics.json (no retraining)."""
+    result_dir = Path(result_dir)
+    lr = plt.imread(result_dir / "lr_original.png")[..., :3]
+    bil = plt.imread(result_dir / "bilinear_baseline.png")[..., :3]
+    pred = plt.imread(result_dir / "model_output_aligned.png")[..., :3]
+    gt = plt.imread(result_dir / "ground_truth.png")[..., :3]
+    loaded = load_metrics_from_json(result_dir / "metrics.json")
+    label = sample_label or loaded["raw"].get("sample_id", "")
+    save_eval_visualizations(
+        result_dir,
+        lr_hwc=lr.astype(np.float32),
+        bilinear_hwc=bil.astype(np.float32),
+        pred_hwc=pred.astype(np.float32),
+        gt_hwc=gt.astype(np.float32),
+        image_metrics=loaded["image_metrics"],
+        fixed_spot=loaded["fixed_spot"],
+        sample_label=str(label),
+    )
+
+
+def save_hr_lr_revisit_panel(
+    ds,
+    output_path: Path,
+    *,
+    city_name: str | None = None,
+) -> None:
+    """Show harmonized HR GT and every S2 LR revisit for one city."""
+    n_lr = ds.num_samples
+    hr = ds.get_original_hr().detach().cpu().numpy()
+    if hr.ndim == 3 and hr.shape[0] in (1, 3, 4) and hr.shape[0] != hr.shape[-1]:
+        hr = hr.transpose(1, 2, 0)
+    lr_list = [ds.get_lr_sample(i).detach().cpu().numpy().transpose(1, 2, 0) for i in range(n_lr)]
+
+    hr_disp, *lr_disp = _shared_display_stretch(hr, *lr_list)
+
+    frame_order = sorted(
+        range(n_lr),
+        key=lambda i: ds.frames[i].get("datetime", ""),
+    )
+    base_idx = ds.base_frame_index
+
+    n_cols = 4
+    n_lr_rows = int(np.ceil(n_lr / n_cols))
+    fig_h = 2.8 + 2.2 * n_lr_rows
+    fig = plt.figure(figsize=(4 * n_cols, fig_h))
+    gs = GridSpec(
+        1 + n_lr_rows,
+        n_cols,
+        figure=fig,
+        height_ratios=[2.2] + [1.0] * n_lr_rows,
+    )
+
+    title_city = city_name or getattr(ds, "s2_dir", Path("city")).name
+    fig.suptitle(
+        f"{title_city}: harmonized HR GT and all {n_lr} S2 LR revisits",
+        fontsize=14,
+        fontweight="bold",
+        y=0.995,
+    )
+
+    hr_ax = fig.add_subplot(gs[0, :])
+    hr_ax.imshow(hr_disp)
+    hr_ax.set_title(
+        f"HR GT (harmonized)\nNIB {getattr(ds, 'nib_acquisition_date', '?')}",
+        fontsize=11,
+        fontweight="bold",
+    )
+    hr_ax.axis("off")
+    hr_ax.add_patch(
+        patches.Rectangle(
+            (0, 0),
+            hr.shape[1] - 1,
+            hr.shape[0] - 1,
+            fill=False,
+            edgecolor="#2ecc71",
+            linewidth=3,
+        )
+    )
+
+    for plot_idx, frame_idx in enumerate(frame_order):
+        row = 1 + plot_idx // n_cols
+        col = plot_idx % n_cols
+        ax = fig.add_subplot(gs[row, col])
+        ax.imshow(lr_disp[frame_idx])
+        frame = ds.frames[frame_idx]
+        dt = frame.get("datetime", "")[:10]
+        is_base = frame_idx == base_idx
+        label = f"LR {frame_idx}: {dt}"
+        if is_base:
+            label += "\n(base / harmonize ref)"
+        ax.set_title(label, fontsize=9, fontweight="bold" if is_base else "normal")
+        ax.axis("off")
+        if is_base:
+            ax.add_patch(
+                patches.Rectangle(
+                    (0, 0),
+                    lr_list[frame_idx].shape[1] - 1,
+                    lr_list[frame_idx].shape[0] - 1,
+                    fill=False,
+                    edgecolor="#e74c3c",
+                    linewidth=3,
+                )
+            )
+
+    plt.tight_layout(pad=1.2)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.15, dpi=200)
+    plt.close()
