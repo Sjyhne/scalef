@@ -3,37 +3,27 @@
 ScaleF is the large-scale continuation of SuperF for test-time optimization based multi-image super-resolution.
 
 This repository contains the core code migrated from SuperF, focused on what is most important to keep momentum:
-- Optimization pipelines: `optimize.py`, `optimize_against_folder.py`
-- Core data loaders and utilities: `data.py`, `utils.py`, `losses.py`, `viz_utils.py`
+- Optimization pipeline: `optimize.py`
+- Utilities: `data.py`, `utils.py`, `losses.py`
 - Model and projection modules: `models/`, `input_projections/`
-- Data preparation helpers: `create_data_from_single_image.py`, `extract_force_datacube.py`
+- Sentinel-2 revisit download: `scripts/fetch_s2_revisits.py`
 
 ## Quick Start
 
 ```bash
 pip install -e .
 
-# Main optimization entrypoint
-python optimize.py --dataset satburst_synth --sample_id sample_1 --df 4 --iters 1000
-
-# Or via console script
-scalef-train --dataset satburst_synth --sample_id sample_1 --df 4 --iters 1000
-
-# Evaluate in mixed precision (FP16/BF16) to benchmark PSNR vs float32
-python optimize.py --dataset satburst_synth --sample_id sample_1 --df 4 --iters 1000 --eval_mixed_precision auto
+# Download Sentinel-2 revisits (full MGRS 10 m tile; --size-km is the study/crop window)
+python scripts/fetch_s2_revisits.py \
+  --date 2019-07-15 --lon -76.53 --lat 37.41 --size-km 1.28 \
+  --num-samples 8 --cloud-method omnicloudmask --out data/s2_revisits/demo
 ```
 
-## Benchmarking inference speed
+## Method
 
-Compare inference time with and without dynamic quantization (CPU):
-
-```bash
-python benchmark_speed.py
-```
-
-Options: `--warmup`, `--repeat`, `--height`, `--width`, `--device cpu|cuda`, `--checkpoint path/to.pt`. Quantization is run on CPU only (PyTorch dynamic int8).
+The current training method, rejected alternatives, and open questions are in [docs/METHOD.md](docs/METHOD.md).
 
 ## Notes
 
-- Large datasets, experiment outputs, and docs/media are intentionally not migrated to keep this repo lean.
-- The code remains compatible with the original SuperF workflow while giving you a cleaner base for scaling and performance work.
+- Large datasets and experiment outputs are gitignored.
+- Download Sentinel-2 revisits with `scripts/fetch_s2_revisits.py`. Training loaders for WorldStrat / satburst were removed.
