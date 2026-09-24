@@ -61,6 +61,30 @@ def crop_lr_hr_tensors(
     return coords_c, lr_c, mask_c
 
 
+def _reflect_index(start: int, stop: int, n: int, device=None) -> torch.Tensor:
+    """Indices ``start..stop-1`` folded into ``[0, n)`` like ``F.pad(mode='reflect')``."""
+    idx = torch.arange(int(start), int(stop), device=device)
+    idx = torch.where(idx < 0, -idx, idx)
+    return torch.where(idx > n - 1, 2 * (n - 1) - idx, idx)
+
+
+def crop_hr_support_with_halo(
+    coords: torch.Tensor, row: int, col: int, tile: int, halo: int, df: int
+) -> torch.Tensor:
+    """HR coords for an LR tile widened by ``halo`` LR px on every side.
+
+    Outside the field the support takes the coordinates of the mirrored HR pixels,
+    so the prediction there equals the full-field reflect padding of the blur.
+    """
+    hr_h, hr_w = int(coords.shape[1]), int(coords.shape[2])
+    pad = int(halo) * int(df)
+    r0, c0 = int(row) * int(df) - pad, int(col) * int(df) - pad
+    size = int(tile) * int(df) + 2 * pad
+    rows = _reflect_index(r0, r0 + size, hr_h, coords.device)
+    cols = _reflect_index(c0, c0 + size, hr_w, coords.device)
+    return coords.index_select(1, rows).index_select(2, cols).contiguous()
+
+
 def _repeat_batch(t: torch.Tensor | None, n: int) -> torch.Tensor | None:
     if t is None or n <= 1:
         return t
@@ -78,6 +102,7 @@ def stack_lr_hr_tiles(
     sample_id: torch.Tensor | None = None,
     gt_dx: torch.Tensor | None = None,
     gt_dy: torch.Tensor | None = None,
+    halo: int = 0,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -86,17 +111,27 @@ def stack_lr_hr_tiles(
     torch.Tensor | None,
     torch.Tensor | None,
 ]:
-    """Crop each origin and concatenate on the batch dim (one fused forward)."""
+    """Crop each origin and concatenate on the batch dim (one fused forward).
+
+    With ``halo > 0`` the HR coords cover the tile plus ``halo`` LR px of context on
+    every side (see ``crop_hr_support_with_halo``); LR targets and masks stay tile-sized.
+    """
     n = len(origins)
+    df = infer_df(int(coords.shape[1]), int(lr_target.shape[1]))
+
+    def crop(row: int, col: int):
+        c, t, m = crop_lr_hr_tensors(coords, lr_target, row, col, tile, mask=mask)
+        if halo > 0:
+            c = crop_hr_support_with_halo(coords, row, col, tile, halo, df)
+        return c, t, m
+
     if n <= 1:
         origin = origins[0]
-        coords_c, lr_c, mask_c = crop_lr_hr_tensors(
-            coords, lr_target, origin[0], origin[1], tile, mask=mask
-        )
+        coords_c, lr_c, mask_c = crop(origin[0], origin[1])
         return coords_c, lr_c, mask_c, sample_id, gt_dx, gt_dy
     cs, lrs, ms = [], [], []
     for row, col in origins:
-        c, t, m = crop_lr_hr_tensors(coords, lr_target, row, col, tile, mask=mask)
+        c, t, m = crop(row, col)
         cs.append(c)
         lrs.append(t)
         if m is not None:
@@ -360,6 +395,7 @@ def stack_cross_frame_tiles(
     tile: int,
     device: torch.device,
     train_masks: Sequence[torch.Tensor] | None = None,
+    halo: int = 0,
 ) -> tuple[
     torch.Tensor,
     torch.Tensor,
@@ -384,6 +420,11 @@ def stack_cross_frame_tiles(
         if train_masks is not None:
             mask = train_masks[int(fid)].to(device=device, non_blocking=True)
         c, t, m = crop_lr_hr_tensors(coords_full, lr, row, col, tile, mask=mask)
+        if halo > 0:
+            c = crop_hr_support_with_halo(
+                coords_full, row, col, tile, halo,
+                infer_df(int(coords_full.shape[1]), int(lr.shape[1])),
+            )
         cs.append(c)
         lrs.append(t)
         if m is not None:

@@ -1,12 +1,12 @@
 # ScaleF current method
 
-Decision record for the test-time INR super-resolution pipeline, as of 3 September 2026. Numbers are from the asker AOI unless noted. Selection metric is LPIPS (VGG, lower is better); PSNR and SSIM are reported but not used to rank.
+Decision record for the test-time INR super-resolution pipeline, as of 4 September 2026. Numbers are from the asker AOI unless noted. Selection metric is LPIPS (VGG, lower is better); PSNR and SSIM are reported but not used to rank.
 
-The production recommendation, pending the AOI-size ladder still running:
+The production recommendation:
 
-> Fit one INR per **5.12 km (LR 512 × 512)** window, **k4 fused tiles** (128 px, 4 per step), physical Sentinel-2 MTF, Charbonnier loss, `holdout_mse` early stop. Do not use larger AOIs for quality. Do not raise hash-table size or hash-grid depth.
+> Fit one INR per **5.12 km (LR 512 × 512)** window, **k4 fused tiles** (128 px, 4 per step), physical Sentinel-2 MTF, Charbonnier loss, `holdout_mse` early stop with **patience 8**. Do not raise hash-table size or hash-grid depth. Do not move to 10–20 km INRs for quality.
 
-That recommendation is slightly weaker than it looked yesterday. Seed variance showed that `k4`'s published 0.3700 was the luckiest of five draws, and that a large part of the fused-k quality gap is premature stopping rather than missing coverage. The ordering still holds.
+k4 is the speed/quality knee, not the ceiling. Full-field at the same AOI is a bit better (mean LPIPS 0.363 vs k4 mean 0.376). A long-budget LR2048 `k8` can match full-field quality (0.360) if you wait ~15× longer. Neither is the trade this project asked for. Seed variance showed the old published k4 of 0.3700 was the luckiest of five draws under patience 3; ship patience 8 so that gap shrinks.
 
 ---
 
@@ -32,8 +32,8 @@ Scene: asker, UTM 32N, granule origin (499980, 6590220). The LR512 and LR2048 da
 | Decoder | Fully-fused TCNN MLP, depth 4, width 256, FP16 | Matches the encoder backend. FP16 is required for the fused kernels; it is also the source of the gradient-underflow bug below. |
 | Hash ladder | Auto-sized from LR shape: `max = lr_size`, `base = max/4`, 16 levels × 2 features | Physically identical on every AOI size: 40 m → 10 m cells. See §5. |
 | Hash table | `log2 = 21` (2.1 M entries) | Raising it does nothing once the table covers the finest level. See §5. |
-| Finest-level multiplier | 1.0 in the current benches | The earlier 7-city PSF sweep preferred `hash_max_resolution_mult = 2` (finest level at 5 m). That has not been re-validated on the coverage/capacity arms and is **not** in the numbers below. Treat it as a pending promotion, not current practice. |
-| Alignment | One global affine per frame | Cheap and sufficient at 5 km. Leading suspect for the remaining 20 km quality gap. See §6. |
+| Finest-level multiplier | **1.0 (keep)** | `mult=2` (finest at 5 m) can win a few LPIPS points on Asker k4 (0.362 vs 0.370) but looks worse in QGIS against NIB — oversharp / unstable high frequency. Rejected after side-by-side GeoTIFF inspection (`hashmult{1,2}_k4_qgis`). Do not promote. |
+| Alignment | One global affine per frame | Enough at 5 km, where it is one tile's warp. At 20 km it is a spatial average of a field that varies by metres; rotation is ~0°. See §6. |
 | Colour | One 3×4 affine per frame | Removes residual radiometric mismatch the PSF does not explain. |
 
 ### Correctness fixes now in the training stack
@@ -61,7 +61,9 @@ These are not research choices. They are bugs that silently poisoned earlier fus
 | Iterations | Cap 5000 (benches) / 8000 (AOI ladder) | Holdout early-stop usually fires first. |
 | Holdout | 10 % of LR pixels, in blocks (~8 px at LR512, ~32 px at LR2048), independent per frame | The only production-viable validation signal. Norway has no HR GT, so LPIPS/MAE/PSNR cannot be the stopping metric. |
 | Stop metric | `holdout_mse` | LR-only. See the caveat in §4. |
+| Stop score | **EMA α=0.4** of holdout (auto when metric is `holdout_mse`) | Cuts fused-k patience trips on tile-sampling jitter. Offline replay on 7-city long runs: p8+EMA mean LPIPS regret ≪ p3 raw. |
 | Patience | 3 in the published tables; **8 going forward** | Patience 3 trips on holdout jitter from random tile sampling. See §4. |
+| Regression trip-wire | **0.01** absolute on holdout EMA (auto) | Was 0 for holdout_mse; now forces stop on clear val blow-ups without waiting out patience. |
 | Eval cadence | Every 200 iterations | HR eval is skipped entirely when the stop metric is `holdout_mse` (`_skip_periodic_hr_eval`). We only ever see the final HR number. |
 | Tile mix | `within` | Tiles are drawn inside one AOI. Cross-frame mixing was measured separately and is not the default. |
 | Seed | 6 | Default. Full-field is deterministic across seeds; fused-k is not, because of the stopping rule. |
@@ -96,7 +98,7 @@ Seed variance on LR512 (same config, seeds 6–10):
 
 Full-field is deterministic: every seed stopped at iteration 4400. `k4` seeds stopped anywhere from 2000 (LPIPS 0.3884) to 4800 (LPIPS 0.3698). The published `k4` number was the best of five. The ordering full < k8 < k4 < k2 survives in the means, so the shape of the quality/speed frontier is real, but the gaps are wider than the canvas reported (k4→full is 0.0134 in the mean, not 0.0074).
 
-Going forward: patience 8, and treat single-seed fused-k differences below ~0.005 as noise unless the run was allowed to finish.
+Going forward: patience 8, **EMA-smoothed holdout** (`--early_stop_ema` auto 0.4), holdout regression 0.01, and treat single-seed fused-k differences below ~0.005 as noise unless the run was allowed to finish. Replay tool: `scripts/bench_stopping_rules.py`.
 
 ---
 
@@ -124,50 +126,62 @@ The LR2048 up-ladder at collision-free `log24` is flat: 16 levels 0.4113, 24 lev
 
 ---
 
-## 6. Coverage and AOI size
+## 6. Coverage, AOI size, and alignment
 
 ### Fused-k at LR512 (the production route)
 
-After the gradient fix, coverage is monotone and cheap. Using seed-6 published times and the seed-variance *means* for quality:
+After the gradient fix, coverage is monotone and cheap. Quality below uses seed-variance *means*; times are seed-6 training only:
 
-| config | mean LPIPS | vs bilinear (seed 6 bil = 0.4442) | train s / AOI | hours / granule, 8 GPU |
+| config | mean LPIPS | vs bilinear (0.4442) | train s / AOI | hours / granule, 8 GPU |
 |--|--:|--:|--:|--:|
 | k2 | 0.3841 | +0.060 | 45 | 0.76 |
 | k4 | 0.3760 | +0.068 | 67 | 1.13 |
 | k8 | 0.3688 | +0.075 | 114 | 1.92 |
 | full | 0.3626 | +0.082 | 186 | 3.13 |
 
-Hours assume 484 AOIs per 10980 px granule and **training time only**. Per-AOI setup is unmeasured and is paid 484 times, so this systematically favours whatever reduces AOI count.
+Hours assume 484 AOIs per 10980 px granule. Per-AOI setup is ~0.5 s (measured) and is paid once per AOI — ~0.06 h/granule serial, not a cost driver.
 
-`k4` remains the recommended operating point: most of full-field's gain, roughly a third of the compute. The gap to full is larger in the mean than the single-seed canvas showed, and a slice of it is recoverable by not stopping early. It is not large enough to prefer full-field.
+`k4` is the operating point: most of full-field's gain, roughly a third of the train time. The mean gap to full (0.013) is wider than the luckiest single seed showed (0.007); a slice of that is premature stopping under patience 3. It is not large enough to prefer full-field.
 
-### Large AOIs are worse, not faster-enough to compensate
+### The large-AOI "quality cliff" was mostly the stopping rule
 
-LR2048 coverage, full collision-free encoder, gradient fix on:
+Patience-3 LR2048 numbers (gradient fix on, collision-free encoder) looked like a failure:
 
-| config | LPIPS | vs bilinear (0.4401) | train s | hours / granule |
+| config | LPIPS | vs bilinear (0.4401) | train s | stopped at |
 |--|--:|--:|--:|--:|
-| k1 | 0.5140 | −0.074 | 217 | 0.27 |
-| k2 | 0.4670 | −0.027 | 435 | 0.54 |
-| k4 | 0.4282 | +0.012 | 731 | 0.91 |
-| k8 | 0.4121 | +0.028 | 1127 | 1.41 |
-| k16 (full) | 0.3993 | +0.041 | 2749 | 3.44 |
+| k1 | 0.5140 | −0.074 | 217 | 5000 (cap) |
+| k2 | 0.4670 | −0.027 | 435 | 4800 |
+| k4 | 0.4282 | +0.012 | 731 | 4600 |
+| k8 | 0.4121 | +0.028 | 1127 | 3600 |
+| k16 | 0.3993 | +0.041 | 2749 | 4400 |
 
-k1 and k2 are worse than a free bilinear upsample. k16 is the fairest comparison to LR512 full: same coverage, same iterations, matched per-area capacity — and still 0.037 behind, at higher cost (3.44 h vs 3.13 h). Every cheap large-AOI option is dominated.
+Those k1/k2 runs are worse than bilinear. They are also starved. The same `k8` with patience 8 ran to **14,600 iterations and landed at 0.3603** (+0.080, 4612 s) — matching LR512 full-field (0.3590 under patience 8). The method *can* scale in the weak sense: bigger AOI, enough steps, same LPIPS. It does not scale in the strong sense: same `k`, iters, and stop, same gain.
 
-Bilinear baselines differ (0.4442 vs 0.4401), so the two routes are not scored on identical ground. That is a real confound and is why the AOI-size ladder exports GeoTIFFs: we will recompute metrics on the common centre 2.56 km window.
+### AOI-size ladder (full coverage, patience 8)
 
-### What is left as an explanation
+| AOI | km | LPIPS | vs bilinear | train s | notes |
+|--|--:|--:|--:|--:|--|
+| LR256 | 2.56 | 0.3745 | +0.095 | 97 | harder crop (bil 0.470); cap 8000, no stop |
+| LR512 | 5.12 | **0.3590** | +0.085 | 331 | best raw LPIPS; stop 7800 / best 6200 |
+| LR1024 | 10.24 | 0.3728 | +0.071 | 1301 | |
+| LR2048 | 20.48 | 0.3823 | +0.058 | 5010 | same window as the affine grid |
 
-Excluded, with equal iterations and full coverage: collisions, hash headroom, per-area capacity, ladder resolution, per-pixel update scarcity.
+Raw LPIPS still prefers 5 km over 20 km (0.359 vs 0.382). The gap is 0.023, not the 0.037 we quoted under patience 3. Bilinear baselines still differ, and the GeoTIFF export on this ladder did not write, so these are **not** yet scored on identical ground. Treat the ordering as real and the gains as not strictly comparable.
 
-Still open:
+NIB aerial GT does not fill every pixel of a 20 km window. The 2048 eval mask is 86.9 % valid; the SE 512 of that window is 8.3 %. S2 is complete; the aerial is not. Interior 512s with ~100 % valid GT still beat bilinear (typically +0.04 to +0.09). Thin-GT edge tiles and water (`y3_x2`) are not a fair quality read. Two SE 512s (`y2_x3`, `y3_x3`) first crashed in centre-spot eval because the mask had no `model_psnr`; that path now skips the spot.
 
-1. **One global affine over 20 km.** A single 6-parameter warp per frame is asked to absorb residual misregistration, terrain, and any spatially-varying error across 16× the ground. Predicted signature: quality degrades smoothly with AOI extent. The AOI-size ladder (LR256 / 512 / 1024 / 2048, full coverage, patience 8, GeoTIFF export on) is running to test this.
-2. **Eval-crop mismatch.** Part of the 0.037 may simply be different ground. The GeoTIFFs settle it.
-3. **Early-stop interaction.** Less likely at full coverage (the full-field seeds were deterministic) but the large-AOI arms still tile internally.
+### One global affine is a 20 km problem, not a 5 km problem
 
-LR256 full, already in: LPIPS 0.3745, bilinear 0.4698, gain **+0.0953**, PSNR +1.75 dB, 97 s, 8000 iterations (patience 8 did not fire). Raw LPIPS is worse than LR512 full (0.3626) because the crop is different and harder (bilinear 0.470 vs 0.444). Gain-over-bilinear is the number to watch once all four sizes are scored on common ground.
+We cut the existing LR2048 window into a real partition (1×2048, 2×2 of 1024, 4×4 of 512), retrained full coverage with affine dumps, and compared warps in metres. Figures: `single_samples/sweep_results/affine_grid_hr_warp.png` (HR mosaics + mean warp) and `affine_grid_frames.png` (per-frame 512 fields).
+
+- **Translation varies by metres.** On well-behaved frames the 16 small tiles disagree by 2–15 m (0.2–1.5 S2 pixels). The single 2048 affine sits near their average, not on any corner.
+- **Rotation is ~0°** (≤0.1°). The extra affine degrees of freedom are not doing the work.
+- **Some frames diverge** at 20 km (kilometre-scale outliers; frame 10 took the 2048 with it). Large AOIs are not only averaging — they can fail to find a stable warp.
+- Mean warp plots exclude cells with `|shift| > 50 m` or `|α| > 5°`, then `nanmean` over frames. Frame 0 (frozen identity) is still in that mean and pulls it toward zero. Per-frame maps are the ones without averaging.
+
+That is why we stay at 5 km: each INR's affine is then one tile's warp. A spatially-varying alignment is a rescue for 20 km INRs, not a better 512 method.
+
+Excluded as explanations of the old cliff: collisions, hash headroom, per-area capacity, ladder resolution. What remains at matched budget is a milder extent effect (alignment + crop + leftover stop interaction), not an inability to represent the scene.
 
 ---
 
@@ -183,15 +197,16 @@ For a Sentinel-2 granule on 8× H100, today:
 --lr_tile 128 --lr_tiles_per_step 4 --lr_tile_mix within
 --early_stop_metric holdout_mse
 --early_stop_patience 8 --early_stop_min_iters 1000
+# EMA α=0.4 and max_regression=0.01 apply automatically for holdout_mse
 --iters 5000 --eval_every 200 --hr_render_tile 2048
 --spatial_holdout 0.1
 ```
 
-Do **not** pass `--no_qgis_export` on a production write-out. Do **not** raise `--hash_log2_hashmap_size` or `--hash_n_levels`. Leave GradScaler at its default.
+Do **not** pass `--no_qgis_export` on a production write-out. Do **not** raise `--hash_log2_hashmap_size` or `--hash_n_levels`. Leave GradScaler at its default. For stopping-rule studies only, add `--force_hr_eval` so LPIPS is logged while still stopping on holdout.
 
 If quality is non-negotiable and time is not, drop `--lr_tile` / `--lr_tiles_per_step` and run full-field. That is the ceiling on this AOI, not a different method.
 
-If time is non-negotiable, `k2` is the next step down. Do not go to LR2048 to save AOI count: on current numbers it is both worse and, at the coverage required to beat bilinear, not cheaper.
+If time is non-negotiable, `k2` is the next step down. Do not go to LR2048 to save AOI count: setup is negligible (~0.5 s/AOI), and at matched quality the large window is ~15× slower to train, not cheaper.
 
 ---
 
@@ -203,12 +218,13 @@ If time is non-negotiable, `k2` is the next step down. Do not go to LR2048 to sa
 | More hash levels at LR2048 | Rejected | Flat at 16 / 24 / 32×1. |
 | Fewer hash levels at LR512 | Optional, low value | Width-32 is what matters; 8×2 saves 13 % for 0.003 LPIPS. Not worth a production change on its own. |
 | Deeper / wider MLP | Not swept | Decoder width 256 × depth 4 has not been the suspected constraint. Cheap to do later at LR512. |
-| Large AOIs (LR2048) | Rejected for quality | Best large-AOI result is worse than the worst small-AOI result, and full coverage costs more. Revisit only if per-AOI setup dominates the 484-AOI layout. |
-| Stop on HR LPIPS | Impossible in production | No HR GT on the Norway run. Keep `holdout_mse`, fix its patience, later add a centre-crop HR log for development only. |
+| Large AOIs (LR2048) | Rejected for the speed/quality trade | Can match LR512 if you give it ~15 k steps (k8 → 0.360). Does not beat it, costs much more train time, and the global affine is a measured compromise. Revisit only if setup overhead dominates. |
+| Spatially-varying affine | Not for production | Confirmed leftover at 20 km (metres of dx/dy, ~0° rotation). Unnecessary at 5 km, where each INR already has its own warp. |
+| Stop on HR LPIPS | Impossible in production | No HR GT on the Norway run. Keep `holdout_mse` + EMA + patience 8. |
 | Rank on PSNR | Rejected | The 7-city PSF sweep: the physically correct MTF won on LPIPS and lost on PSNR. Ranking on PSNR would have rejected the right forward operator. |
 | DSen2 / box degradation | Rejected | Physical MTF (`s2_psf_m`) wins 5 of 7 cities. |
 | Finest hash level at HR (mult = 4) | Rejected | Underdetermined: 8 frames, 16 HR unknowns per LR pixel. Outputs are high-frequency checkerboards. |
-| Finest hash level at 2× LR (mult = 2) | Promising, not current | Won the 7-city PSF sweep. Not in the coverage/capacity numbers. Re-validate before promoting. |
+| Finest hash level at 2× LR (mult = 2) | Rejected | LPIPS can tick up (Asker k4: 0.362 vs 0.370) but QGIS vs NIB prefers mult=1 — looks oversharp / unstable. Keep default 1.0. |
 
 ---
 
@@ -216,13 +232,13 @@ If time is non-negotiable, `k2` is the next step down. Do not go to LR2048 to sa
 
 In rough priority.
 
-1. **AOI-size ladder** (running). Full coverage at 256 / 512 / 1024 / 2048, patience 8, GeoTIFFs on. Decides whether quality-vs-extent is smooth (alignment) and which AOI size actually belongs in §7. Also gives the first apples-to-apples score on common ground.
-2. **Per-AOI setup time.** Unmeasured, multiplied by 484 vs 36. At even 30 s it adds ~0.5 h per granule on the LR512 route, comparable to the whole k2→k4 gap. This is the biggest unknown in the cost model and the only argument that could bring large AOIs back.
-3. **Stopping rule.** Patience 8 is a patch. A better LR-only criterion (smoothed holdout, or a regression trip-wire that is not zero) would recover the fused-k quality we are currently throwing away, which is worth more than any capacity knob.
-4. **Development-only HR trajectory.** Periodic centre-crop LPIPS, logged, not used to stop. Tells us whether `holdout_mse` and HR quality peak at the same iteration. Needed to design (3).
-5. **`hash_max_resolution_mult = 2`.** Re-validate on the current stack (gradient scaling, patience 8, LR512 k4) before calling it the default. The 7-city evidence is real but predates the correctness fixes.
-6. **12-level anomaly.** Reproducible, unexplained. Not blocking. Worth a look if anyone starts moving `n_levels` in anger.
-7. **Checkpoints.** Run directories currently keep PNGs and metrics, not weights. Re-renders require a retrain. Cheap to fix; blocks a lot of "just decode this window again" work.
+1. **Stopping rule (done for ship).** EMA α=0.4 + holdout regression 0.01 auto for `holdout_mse`. Offline full-field: p8+EMA lowest regret. Live k4 traces (asker/bergen, 5k): holdout still improving at budget — p8 does not premature-stop; p3 can. Fused-k seed-variance re-bench optional.
+2. **Common-window LPIPS.** The AOI-size ladder did not write GeoTIFFs. Recompute 256 / 512 / 1024 / 2048 on the shared centre 2.56 km so gains are on the same ground.
+3. **Development-only HR trajectory.** Periodic centre-crop LPIPS via `--force_hr_eval`, logged, not used to stop.
+4. **12-level anomaly.** Reproducible, unexplained. Not blocking.
+5. **Checkpoints.** Run directories keep PNGs, metrics, and now `affines.json`, not weights. Re-renders still require a retrain.
+
+**Setup time (measured).** Production AOI setup (data + model + first step) is ~0.3–0.8 s on H100 for LR512 / `--allow_no_hr` (`scripts/measure_setup_time.py`). Serial over 441 AOIs ≈ **0.06 h/granule** — not the cost-model risk we feared. Large AOIs stay rejected on train time, not setup.
 
 ---
 
@@ -230,7 +246,9 @@ In rough priority.
 
 - City: asker. 16 S2 revisits, May 2024 window, NIB HR dated 2024-05-15.
 - Code entry point: `optimize.py`. Dataset loader: `s2_dataset.py` via `--s2-dir`.
-- Sweep drivers: `scripts/bench_capacity_coverage.py`, `bench_capacity_ladder.py`, `bench_seed_variance.py`, `bench_aoi_size.py`.
+- Sweep drivers: `scripts/bench_capacity_coverage.py`, `bench_capacity_ladder.py`, `bench_seed_variance.py`, `bench_aoi_size.py`, `bench_affine_grid.py`.
+- Affine grid: `scripts/make_affine_grid.py` (partition of the LR2048 window), dumps via `eval/learned_affines.py`, compare/plot with `scripts/compare_affine_grid.py` and `scripts/viz_affine_grid.py`.
+- **Production (no HR GT):** `docs/PRODUCTION.md` — `scripts/make_granule_tiles.py` + `scripts/run_production.py` (`--allow_no_hr`).
 - Results JSON: `single_samples/sweep_results/bench_*.json`.
-- Visual spot check: `scripts/viz_spot_comparison.py` → `single_samples/sweep_results/spot_256_comparison.png`.
+- Figures: `spot_256_comparison.png`, `affine_grid_hr_warp.png`, `affine_grid_frames.png`.
 - All benches in this note used FP32 eval, gradient loss scaling on, and `--hr_render_tile 2048`.

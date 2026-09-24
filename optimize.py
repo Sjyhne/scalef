@@ -13,6 +13,11 @@ from torchmetrics.functional.image import peak_signal_noise_ratio
 import matplotlib.pyplot as plt
 import json
 from datetime import datetime
+import importlib.metadata
+import platform
+import subprocess
+import sys
+import threading
 
 from data import get_dataset, resolve_dataset_device
 from utils import bilinear_resize_torch, align_output_to_target, get_valid_mask
@@ -27,14 +32,24 @@ from eval.masked_metrics import compute_masked_image_metrics
 from eval.hr_render import render_hr_rgb_tiled, resolve_hr_render_tile
 from eval.visualize import save_eval_visualizations
 from eval.export_geotiff import export_qgis_layers
+from eval.learned_affines import write_affine_dump
+from eval.halo_consistency import (
+    attach_halo_to_dataset,
+    halo_consistency_loss,
+    parse_halo_sides,
+    sample_halo_batch,
+)
 from eval.lr_holdout import (
     EarlyStopState,
+    apply_lr_clear_masks,
     compute_holdout_val_loss,
     elementwise_recon,
     gather_train_masks,
+    holdout_psf_pad_lr,
     init_early_stop_state,
     masked_mean,
     resolve_early_stop_score,
+    default_early_stop_ema,
     default_early_stop_regression,
 )
 from models.training_schedule import effective_lr_align_args
@@ -68,6 +83,244 @@ def _peak_memory_gb(device: torch.device) -> float | None:
     if device.type != "cuda":
         return None
     return float(torch.cuda.max_memory_allocated(device) / (1024**3))
+
+
+def _maybe_apply_lr_cloud_masks(holdout_state, train_data, args):
+    """AND SCL/cloud clear maps into holdout train/val masks when present."""
+    if holdout_state is None:
+        return None
+    if not bool(getattr(args, "mask_lr_clouds", True)):
+        return holdout_state
+    if not bool(getattr(train_data, "has_lr_cloud_mask", False)):
+        return holdout_state
+    clear = getattr(train_data, "lr_clear", None)
+    if clear is None:
+        return holdout_state
+    return apply_lr_clear_masks(holdout_state, clear)
+
+
+def _json_safe(value):
+    """Recursively convert argparse/provenance values into JSON primitives."""
+    if isinstance(value, argparse.Namespace):
+        value = vars(value)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, torch.device):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def _package_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _git_provenance(repo_dir: Path) -> dict:
+    result = {"commit": None, "dirty": None}
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        result["commit"] = commit.stdout.strip() or None
+        result["dirty"] = bool(status.stdout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return result
+
+
+def _experiment_provenance(args, device: torch.device, parsed_args: dict) -> dict:
+    gpu_name = None
+    if device.type == "cuda":
+        try:
+            gpu_name = torch.cuda.get_device_name(device)
+        except (RuntimeError, AssertionError):
+            pass
+    return {
+        "git": _git_provenance(Path(__file__).resolve().parent),
+        "versions": {
+            "python": platform.python_version(),
+            "pytorch": torch.__version__,
+            "cuda": torch.version.cuda,
+            "tinycudann": _package_version("tinycudann"),
+        },
+        "python_executable": sys.executable,
+        "gpu_name": gpu_name,
+        "seed": int(getattr(args, "seed", 0)),
+        "args": _json_safe(parsed_args),
+    }
+
+
+def _model_parameter_counts(model: nn.Module) -> dict[str, int]:
+    parameters = list(model.parameters())
+    return {
+        "total": sum(parameter.numel() for parameter in parameters),
+        "trainable": sum(parameter.numel() for parameter in parameters if parameter.requires_grad),
+    }
+
+
+def _training_batch_query_counts(
+    coords: torch.Tensor, lr_target: torch.Tensor, supervision_channels: int
+) -> dict[str, int]:
+    """Count the post-sampling workload passed to one training step."""
+    lr_pixels = int(np.prod(lr_target.shape[:-1])) if lr_target.ndim else 0
+    lr_elements = int(lr_target.numel())
+    hr_pixels = int(np.prod(coords.shape[:-1])) if coords.ndim else 0
+    return {
+        "lr_pixels": lr_pixels,
+        "lr_elements": lr_elements,
+        "hr_pixels": hr_pixels,
+        "hr_elements": hr_pixels * max(1, int(supervision_channels)),
+    }
+
+
+def _summarize_training_instrumentation(
+    step_count: int, step_time_seconds: float, query_totals: dict[str, int]
+) -> dict:
+    steps = max(0, int(step_count))
+    elapsed = max(0.0, float(step_time_seconds))
+    return {
+        "step_count": steps,
+        "total_step_time_seconds": elapsed,
+        "average_step_time_seconds": elapsed / steps if steps else None,
+        "iterations_per_second": steps / elapsed if elapsed > 0.0 else None,
+        "queried": {
+            "estimate_basis": "actual_post_sampling_train_one_iteration_inputs",
+            "totals": {key: int(value) for key, value in query_totals.items()},
+            "average_per_step": {
+                key: (float(value) / steps if steps else None)
+                for key, value in query_totals.items()
+            },
+        },
+    }
+
+
+def _sample_process_gpu_memory_bytes() -> tuple[int | None, str | None]:
+    """Snapshot this process's device memory, including non-PyTorch arenas."""
+    pid = os.getpid()
+    try:
+        import pynvml  # type: ignore[import-not-found]
+
+        pynvml.nvmlInit()
+        used = 0
+        found = False
+        try:
+            for index in range(pynvml.nvmlDeviceGetCount()):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+                processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+                for process in processes:
+                    if int(process.pid) == pid:
+                        used += int(process.usedGpuMemory)
+                        found = True
+        finally:
+            pynvml.nvmlShutdown()
+        return (used if found else 0), "pynvml"
+    except Exception:  # noqa: BLE001 - pynvml versions expose different error classes
+        pass
+
+    try:
+        snapshot = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        used_mib = 0
+        for line in snapshot.stdout.splitlines():
+            fields = [field.strip() for field in line.split(",")]
+            if len(fields) == 2 and fields[0].isdigit() and int(fields[0]) == pid:
+                used_mib += int(fields[1])
+        return used_mib * 1024**2, "nvidia-smi"
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None, None
+
+
+class _ProcessGpuMemorySampler:
+    """Low-frequency process-memory sampler for CUDA allocations outside torch."""
+
+    def __init__(self, enabled: bool, interval_seconds: float = 2.0):
+        self.enabled = enabled
+        self.interval_seconds = interval_seconds
+        self.peak_bytes: int | None = None
+        self.source: str | None = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if not self.enabled:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            used, source = _sample_process_gpu_memory_bytes()
+            if used is not None:
+                self.peak_bytes = max(self.peak_bytes or 0, used)
+                self.source = source
+            self._stop.wait(self.interval_seconds)
+
+    def stop(self) -> None:
+        if self._thread is None:
+            return
+        self._stop.set()
+        self._thread.join(timeout=max(2.0, self.interval_seconds + 1.0))
+
+
+def _gpu_memory_metrics(
+    device: torch.device, process_sampler: _ProcessGpuMemorySampler
+) -> dict:
+    if device.type != "cuda":
+        return {
+            "torch_peak_allocated_gb": None,
+            "torch_peak_reserved_gb": None,
+            "process_peak_used_gb": None,
+            "process_memory_source": None,
+            "device_total_memory_gb": None,
+        }
+    gib = float(1024**3)
+    try:
+        total = int(torch.cuda.get_device_properties(device).total_memory)
+    except (RuntimeError, AssertionError):
+        total = 0
+    return {
+        "torch_peak_allocated_gb": float(torch.cuda.max_memory_allocated(device) / gib),
+        "torch_peak_reserved_gb": float(torch.cuda.max_memory_reserved(device) / gib),
+        "process_peak_used_gb": (
+            float(process_sampler.peak_bytes / gib)
+            if process_sampler.peak_bytes is not None
+            else None
+        ),
+        "process_memory_source": process_sampler.source,
+        "device_total_memory_gb": float(total / gib) if total else None,
+    }
 
 
 def _uses_hetero_loss(args) -> bool:
@@ -331,7 +584,10 @@ def eval_hr_metrics(
             hr_render_tile=hr_tile,
             **fwd_kwargs,
         )
-        output = output * test_loader.get_lr_std(0).to(device) + test_loader.get_lr_mean(0).to(device)
+        output = (
+            output * test_loader.get_lr_std(0).to(output.device)
+            + test_loader.get_lr_mean(0).to(output.device)
+        )
 
         pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
         if pred_tensor.shape[-1] == 3:
@@ -355,8 +611,117 @@ def eval_hr_metrics(
         metrics = _compute_full_frame_metrics(
             pred_tensor, gt_tensor, bilinear_tensor, device, lpips_fn, eval_mask_hw
         )
+        window = _parse_eval_subwindow(args)
+        if window is not None:
+            r0, c0, side = window
+            df = hr_h // int(test_loader.lr_height)
+            ys = slice(r0 * df, (r0 + side) * df)
+            xs = slice(c0 * df, (c0 + side) * df)
+            sub_gt = gt_tensor[..., ys, xs]
+            sub_mask = eval_mask_hw[ys, xs] if eval_mask_hw is not None else None
+            reference = getattr(test_loader, "sub_reference", None)
+            if reference is not None:
+                sub_gt = reference["gt_bchw"].to(device)
+                sub_mask = reference["mask_hw"]
+            sub = _compute_full_frame_metrics(
+                pred_tensor[..., ys, xs],
+                sub_gt,
+                bilinear_tensor[..., ys, xs],
+                device,
+                lpips_fn,
+                sub_mask,
+            )
+            metrics.update({f"sub_{k}": v for k, v in sub.items()})
 
     return metrics
+
+
+def resolve_lr_tile_halo(args) -> int:
+    if int(getattr(args, "lr_tile", 0) or 0) <= 0:
+        return 0
+    raw = int(getattr(args, "lr_tile_halo", -1))
+    if raw >= 0:
+        return raw
+    if str(getattr(args, "lr_degradation", "s2_psf")).lower().strip() == "area":
+        return 0
+    sigma = max(
+        float(getattr(args, f"s2_psf_sigma_{b}_m", 0.0) or 0.0)
+        for b in ("b02", "b03", "b04")
+    ) * float(getattr(args, "psf_sigma_scale", 1.0) or 1.0)
+    return holdout_psf_pad_lr(
+        int(getattr(args, "df", 4) or 4),
+        sigma_m=sigma,
+        truncate=float(getattr(args, "s2_psf_truncate", 4.0)),
+        native_gsd_m=float(getattr(args, "s2_native_gsd_m", 10.0)),
+    )
+
+
+def _fourier_matrix_provenance(model, args) -> dict:
+    proj = getattr(model, "input_projection", None)
+    B = getattr(proj, "B", None)
+    if B is None:
+        return {}
+    import hashlib
+
+    data = B.detach().float().cpu().contiguous().numpy().tobytes()
+    return {
+        "fourier_matrix": {
+            "shape": list(B.shape),
+            "scale": float(getattr(proj, "scale", float("nan"))),
+            "matrix_seed": int(getattr(args, "fourier_matrix_seed", -1)),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    }
+
+
+def load_subwindow_reference(args, dataset, device) -> dict | None:
+    """HR reference and eval mask for ``--eval_subwindow_lr`` taken from another field.
+
+    The orthophoto is harmonized to the base frame over the whole field, so its
+    radiometry depends on the field. Cross-size comparisons therefore score the shared
+    window of every field against one parent field's reference.
+    """
+    ref_dir = str(getattr(args, "eval_reference_s2_dir", "") or "").strip()
+    window = _parse_eval_subwindow(args)
+    if not ref_dir or window is None:
+        return None
+    import copy
+
+    own_meta = json.loads((Path(args.s2_dir) / "meta.json").read_text())
+    ref_meta = json.loads((Path(ref_dir) / "meta.json").read_text())
+    ref_args = copy.copy(args)
+    ref_args.s2_dir = ref_dir
+    ref_args.num_samples = len(ref_meta["frames"])
+    ref_args.lr_height = ref_args.lr_width = 0
+    ref = get_dataset(args=ref_args, name=args.dataset, training_device=device)
+    r0, c0, side = window
+    rr = own_meta["aoi_window"]["row_off"] + r0 - ref_meta["aoi_window"]["row_off"]
+    cc = own_meta["aoi_window"]["col_off"] + c0 - ref_meta["aoi_window"]["col_off"]
+    df = int(ref.get_original_hr().shape[0]) // int(ref.lr_height)
+    if df != int(dataset.get_original_hr().shape[0]) // int(dataset.lr_height):
+        raise ValueError("reference field must use the same df")
+    ys, xs = slice(rr * df, (rr + side) * df), slice(cc * df, (cc + side) * df)
+    gt = ref.get_original_hr()[ys, xs].float()
+    mask = _get_hr_eval_mask(ref)
+    out = {
+        "gt_bchw": gt.permute(2, 0, 1).unsqueeze(0).cpu(),
+        "mask_hw": mask[ys, xs].cpu() if mask is not None else None,
+        "provenance": {"s2_dir": ref_dir, "window_lr_in_reference": [rr, cc, side]},
+    }
+    del ref
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return out
+
+
+def _parse_eval_subwindow(args) -> tuple[int, int, int] | None:
+    raw = str(getattr(args, "eval_subwindow_lr", "") or "").strip() if args is not None else ""
+    if not raw:
+        return None
+    parts = [int(p) for p in raw.replace(" ", "").split(",")]
+    if len(parts) != 3:
+        raise ValueError(f"--eval_subwindow_lr expects ROW,COL,SIZE, got {raw!r}")
+    return parts[0], parts[1], parts[2]
 
 
 def _format_periodic_eval_line(
@@ -396,12 +761,47 @@ def _resolve_early_stop_max_regression(args) -> float | None:
     return default_early_stop_regression(metric)
 
 
+def _resolve_early_stop_ema(args) -> float | None:
+    raw = float(getattr(args, "early_stop_ema", -1.0) or -1.0)
+    if raw >= 0.0:
+        return raw
+    metric = str(getattr(args, "early_stop_metric", "lpips") or "lpips")
+    return default_early_stop_ema(metric)
+
+
 def _skip_periodic_hr_eval(args) -> bool:
     """Skip full HR-vs-GT during training (LPIPS/PSNR/MAE). Final eval still runs."""
     if bool(getattr(args, "skip_eval", False)):
         return True
+    if bool(getattr(args, "force_hr_eval", False)):
+        return False
+    if bool(getattr(args, "allow_no_hr", False)):
+        return True
     metric = str(getattr(args, "early_stop_metric", "lpips") or "lpips").lower().strip()
     return metric == "holdout_mse"
+
+
+def _dataset_has_hr_gt(dataset) -> bool:
+    return bool(getattr(dataset, "has_hr_gt", True))
+
+
+def _nan_hr_metrics() -> dict:
+    return {
+        "masked": False,
+        "valid_fraction": 0.0,
+        "test_loss": float("nan"),
+        "test_psnr": float("nan"),
+        "model_psnr": float("nan"),
+        "bilinear_psnr": float("nan"),
+        "model_ssim": float("nan"),
+        "bilinear_ssim": float("nan"),
+        "model_lpips": float("nan"),
+        "bilinear_lpips": float("nan"),
+        "model_mse": float("nan"),
+        "bilinear_mse": float("nan"),
+        "model_mae": float("nan"),
+        "bilinear_mae": float("nan"),
+    }
 
 
 def _holdout_val_interval(args) -> int:
@@ -557,6 +957,13 @@ def build_projection_and_decoder(args, device, *, output_dim: int = 3):
         hash_max_resolution_w=max_w if rectangular else 0,
         hash_interpolation=str(getattr(args, "hash_interpolation", "smoothstep")),
     )
+    matrix_seed = int(getattr(args, "fourier_matrix_seed", -1))
+    if hasattr(input_projection, "B") and matrix_seed >= 0:
+        gen = torch.Generator().manual_seed(matrix_seed)
+        with torch.no_grad():
+            input_projection.B.copy_(
+                torch.randn(tuple(input_projection.B.shape), generator=gen).to(input_projection.B)
+            )
     if input_projection is None:
         decoder_in = 2
     elif hasattr(input_projection, "projection_output_dim"):
@@ -587,8 +994,17 @@ def build_model(args, input_projection, decoder, device):
         use_laplace_nll=bool(getattr(args, "use_laplace_nll", False)),
         hetero_scale=str(getattr(args, "hetero_scale", "pixel")),
         hetero_region_size=int(getattr(args, "hetero_region_size", 4)),
-    ).to(device)
+    )
+    model = model.to(device)
     model.lr_degradation = str(getattr(args, "lr_degradation", "s2_psf"))
+    if bool(getattr(args, "freeze_affines", False)):
+        for parameter in model.affine_params.parameters():
+            parameter.requires_grad_(False)
+        print("Control: per-frame affine registration frozen at initialization", flush=True)
+    if bool(getattr(args, "freeze_radiometry", False)):
+        for parameter in model.color_transforms.parameters():
+            parameter.requires_grad_(False)
+        print("Control: per-frame radiometric transforms frozen at identity", flush=True)
     return model
 
 
@@ -674,12 +1090,22 @@ def _train_forward_losses(
     model_kwargs: dict,
     variance_reg: float,
     variance_smooth_reg: float,
+    halo: int = 0,
 ):
     use_gnll_loss = model.use_gnll
+    frames_ref = lr_target
+    if halo > 0:
+        b, h, w, c = lr_target.shape
+        frames_ref = lr_target.new_empty(b, h + 2 * halo, w + 2 * halo, c)
+
+    def crop(t):
+        return t[:, halo:-halo, halo:-halo] if halo > 0 else t
+
     if use_gnll_loss:
         output, pred_shifts, pred_variance = model(
-            coords, sample_id, lr_frames=lr_target, **model_kwargs
+            coords, sample_id, lr_frames=frames_ref, **model_kwargs
         )
+        output, pred_variance = crop(output), crop(pred_variance)
         if train_mask is not None:
             elem = _hetero_recon_criterion(model, elementwise=True)(
                 output, lr_target, pred_variance
@@ -707,8 +1133,9 @@ def _train_forward_losses(
                 variance_reg_loss = variance_reg * torch.mean(model.log_scales ** 2)
     else:
         output, pred_shifts = model(
-            coords, sample_id, lr_frames=lr_target, **model_kwargs
+            coords, sample_id, lr_frames=frames_ref, **model_kwargs
         )
+        output = crop(output)
         if train_mask is not None:
             elem = elementwise_recon(
                 getattr(args, "recon_loss", "mse"),
@@ -761,11 +1188,14 @@ def train_one_iteration(
     cross_sampler=None,
     dataset=None,
     grad_scaler=None,
+    instrumentation: dict | None = None,
 ):
     model.train()
 
     tile = int(getattr(args, "lr_tile", 0) or 0)
+    halo = 0
     if cross_sampler is not None and tile > 0 and dataset is not None:
+        halo = resolve_lr_tile_halo(args)
         pairs = cross_sampler.next_pairs()
         masks = holdout_state.train_masks if holdout_state is not None else None
         coords, lr_target, train_mask, sample_id, gt_dx, gt_dy = stack_cross_frame_tiles(
@@ -774,6 +1204,7 @@ def train_one_iteration(
             tile,
             device,
             train_masks=masks,
+            halo=halo,
         )
         full_lr_hw = (
             int(getattr(dataset, "lr_height", 0) or lr_target.shape[1]),
@@ -797,6 +1228,7 @@ def train_one_iteration(
         full_lr_hw = (int(lr_target.shape[1]), int(lr_target.shape[2]))
         origins = tile_sampler.next_origins() if tile_sampler is not None and tile > 0 else None
         if origins:
+            halo = resolve_lr_tile_halo(args)
             coords, lr_target, train_mask, sample_id, gt_dx, gt_dy = stack_lr_hr_tiles(
                 coords,
                 lr_target,
@@ -806,7 +1238,18 @@ def train_one_iteration(
                 sample_id=sample_id,
                 gt_dx=gt_dx,
                 gt_dy=gt_dy,
+                halo=halo,
             )
+    if instrumentation is not None:
+        counts = _training_batch_query_counts(
+            coords,
+            lr_target,
+            int(getattr(args, "supervision_channels", lr_target.shape[-1])),
+        )
+        instrumentation["step_count"] = int(instrumentation.get("step_count", 0)) + 1
+        totals = instrumentation.setdefault("query_totals", {})
+        for key, value in counts.items():
+            totals[key] = int(totals.get(key, 0)) + value
     model_kwargs = dict(_step_schedule_kwargs(args, iteration))
 
     optimizer.zero_grad()
@@ -829,6 +1272,7 @@ def train_one_iteration(
             model_kwargs,
             variance_reg,
             variance_smooth_reg,
+            halo=halo,
         )
         # Each group holds an equal number of tiles, so averaging the group
         # losses reproduces the full-batch loss (up to per-group differences
@@ -844,6 +1288,42 @@ def train_one_iteration(
             grad_scaler.scale(loss).backward()
         for k, v in losses.items():
             accumulated[k] = accumulated.get(k, 0.0) + v.detach() / groups
+
+    halo_w = float(getattr(args, "halo_weight", 0.0) or 0.0)
+    if (
+        halo_w > 0.0
+        and dataset is not None
+        and getattr(dataset, "halo_target", None) is not None
+    ):
+        batch = sample_halo_batch(
+            dataset,
+            device=device,
+            chunk_lr=int(getattr(args, "halo_chunk_lr", 128) or 128),
+        )
+        if batch is not None:
+            h_coords, h_target, h_mask = batch
+            h_sid = torch.zeros(1, device=device, dtype=torch.long)
+            out = model(h_coords, h_sid, lr_frames=h_target, **model_kwargs)
+            pred = out[0] if isinstance(out, (tuple, list)) else out
+            pred = pred[..., :3]
+            mean0 = dataset.get_lr_mean(0).to(device)
+            std0 = dataset.get_lr_std(0).to(device)
+            pred_rgb = pred * std0 + mean0
+            h_loss = halo_consistency_loss(
+                pred_rgb,
+                h_target,
+                h_mask,
+                recon_loss=str(getattr(args, "recon_loss", "charbonnier") or "charbonnier"),
+                charbonnier_eps=float(getattr(args, "charbonnier_eps", 0.01) or 0.01),
+                mode=str(getattr(args, "halo_mode", "full") or "full"),
+                lf_hr_px=int(getattr(args, "halo_lf_hr_px", 16) or 16),
+            )
+            scaled = (halo_w * h_loss)
+            if grad_scaler is None:
+                scaled.backward()
+            else:
+                grad_scaler.scale(scaled).backward()
+            accumulated["halo_loss"] = h_loss.detach()
 
     if grad_scaler is None:
         optimizer.step()
@@ -906,8 +1386,10 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         min_delta=float(getattr(args, "early_stop_min_delta", 0.0) or 0.0),
         metric=str(getattr(args, "early_stop_metric", "lpips") or "lpips"),
         max_regression=_resolve_early_stop_max_regression(args),
+        ema_alpha=_resolve_early_stop_ema(args),
         device=device,
     )
+    holdout_state = _maybe_apply_lr_cloud_masks(holdout_state, train_data, args)
     val_every = _holdout_val_interval(args)
     val_loss_list: list[float] = []
     
@@ -1019,7 +1501,10 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         )
 
         # Unstandardize the output
-        output = output * train_data.get_lr_std(0).to(device) + train_data.get_lr_mean(0).to(device)
+        output = (
+            output * train_data.get_lr_std(0).to(output.device)
+            + train_data.get_lr_mean(0).to(output.device)
+        )
         
         final_test_loss = F.mse_loss(output, hr_image).item()   
         final_psnr = -10 * torch.log10(torch.tensor(final_test_loss)).item()
@@ -1098,7 +1583,7 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         fixed_spot = _maybe_fixed_spot_metrics(
             pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args, dataset=train_data
         )
-        if fixed_spot:
+        if fixed_spot and not fixed_spot.get("skipped"):
             print(
                 f"Fixed spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center): "
                 f"PSNR {fixed_spot['model_psnr']:.2f} dB "
@@ -1107,6 +1592,10 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                 f"(bil {fixed_spot['bilinear_ssim']:.4f}), "
                 f"LPIPS {fixed_spot['model_lpips']:.4f} "
                 f"(bil {fixed_spot['bilinear_lpips']:.4f})"
+            )
+        elif fixed_spot and fixed_spot.get("skipped"):
+            print(
+                f"Fixed spot skipped ({fixed_spot.get('skip_reason', 'unavailable')})"
             )
         
         # Convert aligned tensors back to numpy for visualization
@@ -1142,7 +1631,7 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                 "model_lpips": model_lpips,
                 "bilinear_lpips": bilinear_lpips,
             },
-            fixed_spot=fixed_spot or None,
+            fixed_spot=(None if not fixed_spot or fixed_spot.get("skipped") else fixed_spot),
             sample_label=f"Sample {sample_idx + 1}",
         )
         
@@ -1648,7 +2137,7 @@ def create_variance_summary(train_data, variance_dir, device):
     print(f"Variance summary saved to {summary_path}")
 
 
-def main():
+def get_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Minimal Satellite Super-Resolution Training")
     
     # Essential parameters only
@@ -1667,6 +2156,80 @@ def main():
         type=str,
         default=None,
         help="NIB HR ortho GeoTIFF. Default: data/nib_resampled/<city>/*_{10/df}m.tif",
+    )
+    parser.add_argument(
+        "--no_mask_lr_clouds",
+        dest="mask_lr_clouds",
+        action="store_false",
+        help=(
+            "Do not AND per-frame SCL/cloud masks into the reconstruction loss. "
+            "Default is on when a frame cloud_mask exists."
+        ),
+    )
+    parser.set_defaults(mask_lr_clouds=True)
+    parser.add_argument(
+        "--lr_stats_pixels",
+        choices=["clear", "all"],
+        default="clear",
+        help=(
+            "Pixels used for each LR frame's per-channel standardization mean/std: "
+            "'clear' excludes cloud-mask and nodata pixels (default); 'all' uses the "
+            "whole frame."
+        ),
+    )
+    parser.add_argument(
+        "--halo_sr",
+        type=str,
+        default=None,
+        help="Frozen neighbor sr_pred.tif for train-time halo consistency.",
+    )
+    parser.add_argument(
+        "--halo_lr_px",
+        type=int,
+        default=32,
+        help="Halo width in LR pixels (default 32 ≈ 320 m).",
+    )
+    parser.add_argument(
+        "--halo_sides",
+        type=str,
+        default="west",
+        help="Comma-separated halo sides: west, north, or west,north.",
+    )
+    parser.add_argument(
+        "--halo_weight",
+        type=float,
+        default=1.0,
+        help="Weight on halo consistency vs S2 recon (used only if --halo_sr is set).",
+    )
+    parser.add_argument(
+        "--halo_chunk_lr",
+        type=int,
+        default=128,
+        help="Random LR-sized chunk along the halo strip each step.",
+    )
+    parser.add_argument(
+        "--halo_mode",
+        type=str,
+        default="full",
+        choices=["full", "lowfreq", "mean"],
+        help=(
+            "Halo match: full=per-pixel (legacy); lowfreq=avg-pool then match; "
+            "mean=RGB mean over the overlap (DC/colour only)."
+        ),
+    )
+    parser.add_argument(
+        "--halo_lf_hr_px",
+        type=int,
+        default=16,
+        help="Pool size in HR pixels for --halo_mode lowfreq (default 16 = 4 LR px).",
+    )
+    parser.add_argument(
+        "--allow_no_hr",
+        action="store_true",
+        help=(
+            "Production SR without HR GT: do not load NIB even if a city package "
+            "exists. Training + GeoTIFF export use Sentinel-2 revisits only."
+        ),
     )
     parser.add_argument(
         "--hr-gsd-m",
@@ -1730,7 +2293,37 @@ def main():
     parser.add_argument("--visualize_variance", action="store_true", help="Opt in: save GNLL variance maps (slow; off by default)")
     parser.add_argument("--no_variance_viz", action="store_true", help="Deprecated alias: variance viz is already off unless --visualize_variance is set")
     parser.add_argument("--no_base_frame", action="store_true", help="Disable base frame (default: use_base_frame=True)")
+    parser.add_argument(
+        "--max_base_cloud_frac",
+        type=float,
+        default=0.02,
+        help=(
+            "Frozen base frame: closest to center/NIB date among frames whose "
+            "cell SCL cloud fraction is <= this (default 0.02). If none qualify, "
+            "use the clearest frame. Affine/radiometry identity is that frame."
+        ),
+    )
+    parser.add_argument(
+        "--force_base_date",
+        type=str,
+        default=None,
+        help=(
+            "If this YYYY-MM-DD is in the cell stack, freeze it as identity "
+            "even when cell SCL cloud exceeds --max_base_cloud_frac. Missing "
+            "date falls back to the default identity rule."
+        ),
+    )
     parser.add_argument("--no_direct_param_T", action="store_true", help="Disable direct parameter T (default: use_direct_param_T=True)")
+    parser.add_argument(
+        "--freeze_affines",
+        action="store_true",
+        help="Control ablation: keep all per-frame geometric transforms at identity.",
+    )
+    parser.add_argument(
+        "--freeze_radiometry",
+        action="store_true",
+        help="Control ablation: keep all per-frame band gain/bias transforms at identity.",
+    )
     
     parser.add_argument("--lr_size", type=int, default=0)
     parser.add_argument("--run_name", type=str, default=None)
@@ -1838,6 +2431,16 @@ def main():
             "else 2048). Needed for large AOIs like LR2048→HR8192."
         ),
     )
+    parser.add_argument(
+        "--query_gsd_m",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated extra output GSDs in metres to decode after training "
+            "(e.g. '5,1'). The field is still fitted at --df; this is query-time scoring, "
+            "not a 1 m training recipe."
+        ),
+    )
     parser.add_argument("--no_multiband_diagnostics", action="store_true")
     parser.add_argument("--skip_eval", action="store_true")
     parser.add_argument("--skip_artifacts", action="store_true")
@@ -1898,8 +2501,62 @@ def main():
         type=float,
         default=-1.0,
         help=(
-            "Force stop when the metric regresses more than this from the best score "
-            "(-1 = auto: 0.003 for LPIPS, 0.002 for MAE, 0 for holdout_mse)."
+            "Force stop when the (possibly EMA-smoothed) metric regresses more than this "
+            "from the best score (-1 = auto: 0.003 LPIPS, 0.01 holdout_mse, …)."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_ema",
+        type=float,
+        default=-1.0,
+        help=(
+            "EMA alpha on the stop metric before patience/regression "
+            "(-1 = auto: 0.4 for holdout_mse, 0 otherwise; 0 disables)."
+        ),
+    )
+    parser.add_argument(
+        "--force_hr_eval",
+        action="store_true",
+        help=(
+            "Log full-frame HR metrics every eval_every even when early_stop_metric "
+            "is holdout_mse (for stopping-rule validation; not for production)."
+        ),
+    )
+    parser.add_argument(
+        "--lr_tile_halo",
+        type=int,
+        default=-1,
+        help=(
+            "LR px of blur context added around each training window (--lr_tile > 0); "
+            "the prediction is cropped back to the window before the loss so window "
+            "edges match the full-field forward. -1 = PSF support (default); 0 = none."
+        ),
+    )
+    parser.add_argument(
+        "--fourier_matrix_seed",
+        type=int,
+        default=-1,
+        help=(
+            "Draw the Fourier frequency matrix from a dedicated generator with this seed, "
+            "so it is identical across field sizes; -1 keeps the global-RNG draw."
+        ),
+    )
+    parser.add_argument(
+        "--eval_reference_s2_dir",
+        type=str,
+        default="",
+        help=(
+            "Score --eval_subwindow_lr against the HR reference (and eval mask) of this "
+            "field instead of this run's own reference; offsets come from both meta.json."
+        ),
+    )
+    parser.add_argument(
+        "--eval_subwindow_lr",
+        type=str,
+        default="",
+        help=(
+            "ROW,COL,SIZE in LR pixels of this field. Periodic HR evaluation also scores "
+            "this window (history keys sub_*), e.g. a footprint shared across field sizes."
         ),
     )
     parser.add_argument(
@@ -1997,8 +2654,20 @@ def main():
     parser.add_argument("--eval_mixed_precision", type=str, default="none",
                         choices=["none", "auto", "fp16", "bfloat16"],
                         help="Use mixed precision (FP16/BF16) for evaluation only; PSNR/metrics reported in this mode. none=float32.")
-    
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = get_argparser().parse_args()
+    if getattr(args, "halo_sr", None):
+        west, north = parse_halo_sides(getattr(args, "halo_sides", "west"), int(getattr(args, "halo_lr_px", 32) or 0))
+        args.halo_lr_px_west = west
+        args.halo_lr_px_north = north
+    else:
+        args.halo_sr = None
+        args.halo_lr_px_west = 0
+        args.halo_lr_px_north = 0
+    parsed_args = _json_safe(vars(args))
 
     # Setup device - allow "cpu" as explicit device string
     if args.device.lower() == "cpu":
@@ -2025,6 +2694,7 @@ def main():
         device = torch.device("cpu")
     
     print(f"Using device: {device}")
+    provenance = _experiment_provenance(args, device, parsed_args)
     args.dataset_device = resolve_dataset_device(args, training_device=device)
     print(f"Dataset cache device: {args.dataset_device}", flush=True)
     eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
@@ -2058,6 +2728,7 @@ def main():
         return
 
     train_data = get_dataset(args=args, name=args.dataset, training_device=device)
+    attach_halo_to_dataset(train_data, args)
     train_dataloader = build_train_dataloader(train_data, args)
 
     # Expose dataset LR shape into args so resolve_hash_resolutions can auto-size the hashgrid.
@@ -2065,12 +2736,19 @@ def main():
         args.lr_height = int(getattr(train_data, "lr_height", 0) or 0)
     if not getattr(args, "lr_width", 0):
         args.lr_width = int(getattr(train_data, "lr_width", 0) or 0)
+    if getattr(args, "eval_reference_s2_dir", ""):
+        np_state, py_state = np.random.get_state(), random.getstate()
+        with torch.random.fork_rng(devices=[device] if device.type == "cuda" else []):
+            train_data.sub_reference = load_subwindow_reference(args, train_data, device)
+        np.random.set_state(np_state)
+        random.setstate(py_state)
 
     # Setup model
     output_dim = _hetero_output_dim(args)
     input_projection, decoder = build_projection_and_decoder(args, device, output_dim=output_dim)
     model = build_model(args, input_projection, decoder, device)
     init_hetero_region_scales(model, train_data, device)
+    parameter_counts = _model_parameter_counts(model)
     # model = NIR(input_projection, decoder, args.num_samples, use_gnll=args.use_gnll).to(device)
 
     # Setup optimizer
@@ -2101,6 +2779,8 @@ def main():
             flush=True,
         )
     _reset_peak_memory(device)
+    process_memory_sampler = _ProcessGpuMemorySampler(enabled=device.type == "cuda")
+    process_memory_sampler.start()
     
     # Training loop
     iteration = 0
@@ -2119,8 +2799,10 @@ def main():
         min_delta=float(getattr(args, "early_stop_min_delta", 0.0) or 0.0),
         metric=str(getattr(args, "early_stop_metric", "lpips") or "lpips"),
         max_regression=_resolve_early_stop_max_regression(args),
+        ema_alpha=_resolve_early_stop_ema(args),
         device=device,
     )
+    holdout_state = _maybe_apply_lr_cloud_masks(holdout_state, train_data, args)
     val_every = _holdout_val_interval(args)
     val_loss_list: list[float] = []
     
@@ -2132,7 +2814,40 @@ def main():
     trans_loss_list = []
     total_loss_list = []
     iteration_list = []
-    
+    instrumentation = {
+        "step_count": 0,
+        "query_totals": {
+            "lr_pixels": 0,
+            "lr_elements": 0,
+            "hr_pixels": 0,
+            "hr_elements": 0,
+        },
+    }
+    cpu_step_time_seconds = 0.0
+    cuda_step_events: list[tuple[torch.cuda.Event, torch.cuda.Event]] = []
+    sub_history: dict[str, list[float]] = {
+        "sub_psnr": [], "sub_model_ssim": [], "sub_model_lpips": [],
+        "sub_bilinear_psnr": [], "sub_bilinear_lpips": [],
+    }
+    elapsed_step_list: list[float] = []
+    elapsed_wall_list: list[float] = []
+
+    def _record_eval_extras(eval_metrics: dict) -> None:
+        if cuda_step_events:
+            torch.cuda.synchronize(device)
+            elapsed_step_list.append(
+                sum(start.elapsed_time(end) for start, end in cuda_step_events) / 1000.0
+            )
+        else:
+            elapsed_step_list.append(cpu_step_time_seconds)
+        elapsed_wall_list.append(time.time() - training_start_time)
+        if "sub_model_lpips" in eval_metrics:
+            sub_history["sub_psnr"].append(eval_metrics["sub_test_psnr"])
+            sub_history["sub_model_ssim"].append(eval_metrics["sub_model_ssim"])
+            sub_history["sub_model_lpips"].append(eval_metrics["sub_model_lpips"])
+            sub_history["sub_bilinear_psnr"].append(eval_metrics["sub_bilinear_psnr"])
+            sub_history["sub_bilinear_lpips"].append(eval_metrics["sub_bilinear_lpips"])
+
     while iteration < args.iters:
         stop_training = False
         step_samples = [None] if cross_sampler is not None else train_dataloader
@@ -2141,6 +2856,13 @@ def main():
                 break
                 
             # Train one iteration
+            cpu_step_start = time.perf_counter()
+            cuda_step_start = None
+            cuda_step_end = None
+            if device.type == "cuda":
+                cuda_step_start = torch.cuda.Event(enable_timing=True)
+                cuda_step_end = torch.cuda.Event(enable_timing=True)
+                cuda_step_start.record()
             train_losses = train_one_iteration(
                 model,
                 optimizer,
@@ -2155,7 +2877,13 @@ def main():
                 cross_sampler=cross_sampler,
                 dataset=train_data,
                 grad_scaler=grad_scaler,
+                instrumentation=instrumentation,
             )
+            if cuda_step_end is not None and cuda_step_start is not None:
+                cuda_step_end.record()
+                cuda_step_events.append((cuda_step_start, cuda_step_end))
+            else:
+                cpu_step_time_seconds += time.perf_counter() - cpu_step_start
 
             # Check for NaN/Inf in losses and break if detected
             if (torch.isnan(train_losses['recon_loss']) or 
@@ -2205,6 +2933,7 @@ def main():
                             f"at iteration {iteration}"
                         )
                     iteration_list.append(iteration)
+                    _record_eval_extras(eval_metrics)
                     psnr_list.append(eval_metrics["test_psnr"])
                     ssim_list.append(eval_metrics["model_ssim"])
                     lpips_list.append(eval_metrics["model_lpips"])
@@ -2231,6 +2960,7 @@ def main():
 
                 # Append to lists for plotting
                 iteration_list.append(iteration)
+                _record_eval_extras(eval_metrics)
                 psnr_list.append(eval_metrics["test_psnr"])
                 ssim_list.append(eval_metrics["model_ssim"])
                 lpips_list.append(eval_metrics["model_lpips"])
@@ -2243,25 +2973,76 @@ def main():
 
     progress_bar.close()
     training_time = time.time() - training_start_time
+    if cuda_step_events:
+        torch.cuda.synchronize(device)
+        step_time_seconds = sum(
+            start.elapsed_time(end) for start, end in cuda_step_events
+        ) / 1000.0
+    else:
+        step_time_seconds = cpu_step_time_seconds
+    training_instrumentation = _summarize_training_instrumentation(
+        instrumentation["step_count"],
+        step_time_seconds,
+        instrumentation["query_totals"],
+    )
+    training_instrumentation["timing_source"] = (
+        "cuda_events" if cuda_step_events else "host_perf_counter"
+    )
+    process_memory_sampler.stop()
     peak_memory_gb = _peak_memory_gb(device)
+    gpu_memory = _gpu_memory_metrics(device, process_memory_sampler)
     if peak_memory_gb is not None:
-        print(f"Peak training GPU memory: {peak_memory_gb:.2f} GB", flush=True)
+        process_peak = gpu_memory["process_peak_used_gb"]
+        process_text = (
+            f", process/device {process_peak:.2f} GB ({gpu_memory['process_memory_source']})"
+            if process_peak is not None
+            else ""
+        )
+        print(
+            f"Peak training GPU memory: torch allocated {peak_memory_gb:.2f} GB, "
+            f"torch reserved {gpu_memory['torch_peak_reserved_gb']:.2f} GB"
+            f"{process_text}",
+            flush=True,
+        )
 
     if holdout_state is not None and holdout_state.restore_best(model):
         print(
             f"Restored best holdout checkpoint from iter {holdout_state.best_iter} "
             f"(val={holdout_state.best_val:.6f})"
         )
+    checkpoint_metadata = {
+        "final_iteration": int(iteration),
+        "completed_iterations": int(iteration),
+        "stopped_early": bool(holdout_state.stopped) if holdout_state is not None else False,
+        "stopped_iteration": (
+            int(holdout_state.stopped_iter)
+            if holdout_state is not None and holdout_state.stopped_iter
+            else None
+        ),
+        "best_iteration": (
+            int(holdout_state.best_iter)
+            if holdout_state is not None and holdout_state.best_iter
+            else None
+        ),
+        "best_score": (
+            float(holdout_state.best_score)
+            if holdout_state is not None and holdout_state.best_iter
+            else None
+        ),
+        "restored_best": bool(holdout_state.restored) if holdout_state is not None else False,
+    }
 
     final_iter = iteration
     if holdout_state is not None and holdout_state.best_iter:
         final_iter = int(holdout_state.best_iter)
+    checkpoint_metadata["final_iteration"] = int(final_iter)
     final_kwargs = _final_schedule_kwargs(args, final_iter)
     final_progress = final_kwargs.get("progress")
     
     # Final evaluation and save output
     model.eval()
     eval_autocast_dtype = get_eval_autocast_dtype(args.eval_mixed_precision, device)
+    has_hr = _dataset_has_hr_gt(train_data)
     with torch.no_grad():
         hr_coords = train_data.get_hr_coordinates().unsqueeze(0).to(device)
         hr_image = train_data.get_original_hr().unsqueeze(0).to(device)
@@ -2280,7 +3061,10 @@ def main():
         )
 
         # Unstandardize the output
-        output = output * train_data.get_lr_std(0).to(device) + train_data.get_lr_mean(0).to(device)
+        output = (
+            output * train_data.get_lr_std(0).to(output.device)
+            + train_data.get_lr_mean(0).to(output.device)
+        )
 
         pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
         if pred_tensor.shape[-1] == 3:
@@ -2326,16 +3110,18 @@ def main():
             # No unstandardization needed - get_lr_sample already returns unstandardized [0, 1] range
 
         lr_h, lr_w = lr_original.shape[:2]
-        hr_h, hr_w = gt_np.shape[:2]
+        hr_h, hr_w = pred_np.shape[:2]
         lr_bilinear = cv2.resize(lr_original, (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
         pred_np = np.clip(pred_np, 0, 1)
-        gt_np = np.clip(gt_np, 0, 1)
         lr_original = np.clip(lr_original, 0, 1)
         lr_bilinear = np.clip(lr_bilinear, 0, 1)
+        if has_hr:
+            gt_np = np.clip(gt_np, 0, 1)
+        else:
+            gt_np = None
 
         # Convert numpy arrays to torch tensors for alignment and color matching
         pred_tensor = torch.from_numpy(pred_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)  # [1, C, H, W]
-        gt_tensor = torch.from_numpy(gt_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)  # [1, C, H, W]
         bilinear_tensor = torch.from_numpy(lr_bilinear).unsqueeze(0).permute(0, 3, 1, 2).to(device)  # [1, C, H, W]
         
         # Align outputs for fair comparison (following og_main.py approach)
@@ -2344,16 +3130,29 @@ def main():
         pred_aligned = pred_tensor
         bilinear_aligned = bilinear_tensor
 
-        eval_mask_hw = _get_hr_eval_mask(train_data)
-        if eval_mask_hw is not None:
-            print(
-                f"Using masked HR eval on {train_data.hr_valid_fraction * 100:.1f}% valid GT pixels"
-            )
+        if has_hr:
+            gt_tensor = torch.from_numpy(gt_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)
+            eval_mask_hw = _get_hr_eval_mask(train_data)
+            if eval_mask_hw is not None:
+                print(
+                    f"Using masked HR eval on {train_data.hr_valid_fraction * 100:.1f}% valid GT pixels"
+                )
 
-        lpips_fn = get_lpips_model(device)
-        frame_metrics = _compute_full_frame_metrics(
-            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, eval_mask_hw
-        )
+            lpips_fn = get_lpips_model(device)
+            frame_metrics = _compute_full_frame_metrics(
+                pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, eval_mask_hw
+            )
+            fixed_spot = _maybe_fixed_spot_metrics(
+                pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args, dataset=train_data
+            )
+        else:
+            print("No HR GT (--allow_no_hr): skipping LPIPS/PSNR/SSIM vs GT; writing SR GeoTIFFs only.")
+            frame_metrics = _nan_hr_metrics()
+            fixed_spot = {"skipped": True, "skip_reason": "no_hr_gt"}
+            lpips_fn = None
+
+        query_gsd_metrics = None
+
         final_test_loss = frame_metrics["test_loss"]
         final_psnr = frame_metrics["test_psnr"]
         model_psnr = frame_metrics["model_psnr"]
@@ -2363,10 +3162,7 @@ def main():
         pred_lpips = frame_metrics["model_lpips"]
         bilinear_lpips = frame_metrics["bilinear_lpips"]
 
-        fixed_spot = _maybe_fixed_spot_metrics(
-            pred_aligned, gt_tensor, bilinear_aligned, device, lpips_fn, args, dataset=train_data
-        )
-        if fixed_spot:
+        if fixed_spot and not fixed_spot.get("skipped"):
             print(
                 f"Fixed spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center): "
                 f"PSNR {fixed_spot['model_psnr']:.2f} dB "
@@ -2376,6 +3172,10 @@ def main():
                 f"LPIPS {fixed_spot['model_lpips']:.4f} "
                 f"(bil {fixed_spot['bilinear_lpips']:.4f})"
             )
+        elif fixed_spot and fixed_spot.get("skipped"):
+            print(
+                f"Fixed spot skipped ({fixed_spot.get('skip_reason', 'unavailable')})"
+            )
 
         # Convert aligned tensors back to numpy for visualization
         pred_aligned_np = pred_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
@@ -2384,6 +3184,26 @@ def main():
         # Ensure aligned images are in valid range
         pred_aligned_np = np.clip(pred_aligned_np, 0, 1)
         bilinear_aligned_np = np.clip(bilinear_aligned_np, 0, 1)
+
+        query_gsd_metrics = None
+        if has_hr:
+            from eval.query_gsd import eval_query_gsds, parse_query_gsd_m
+
+            query_gsds = parse_query_gsd_m(getattr(args, "query_gsd_m", None))
+            if query_gsds:
+                query_gsd_metrics = eval_query_gsds(
+                    model,
+                    train_data,
+                    query_gsds,
+                    device=device,
+                    args=args,
+                    fwd_kwargs={
+                        **fwd_kwargs,
+                        "eval_autocast_dtype": eval_autocast_dtype,
+                    },
+                    lpips_fn=lpips_fn,
+                    train_pred_hwc=pred_aligned_np,
+                )
         
         # Create structured output directory for single sample results
         output_base_dir = Path("single_samples")
@@ -2407,7 +3227,7 @@ def main():
                 "model_lpips": pred_lpips,
                 "bilinear_lpips": bilinear_lpips,
             },
-            fixed_spot=fixed_spot or None,
+            fixed_spot=(None if not fixed_spot or fixed_spot.get("skipped") else fixed_spot),
             sample_label=str(args.sample_id),
         )
         comparison_path = sample_dir / "comparison.png"
@@ -2428,12 +3248,16 @@ def main():
             except Exception as exc:  # noqa: BLE001
                 print(f"WARN: QGIS GeoTIFF export skipped: {exc}")
         
-    print(f"\nFinal Results:")
-    print(f"Test Loss: {final_test_loss:.6f}")
-    print(f"Test PSNR: {final_psnr:.2f} dB")
-    print(f"Model PSNR: {model_psnr:.2f} dB (bilinear {bilinear_psnr:.2f}, Δ {model_psnr - bilinear_psnr:+.2f} dB)")
-    print(f"Model SSIM: {model_ssim:.4f} (bilinear {bilinear_ssim:.4f}, Δ {model_ssim - bilinear_ssim:+.4f})")
-    print(f"Model LPIPS: {pred_lpips:.4f} (bilinear {bilinear_lpips:.4f}, Δ {bilinear_lpips - pred_lpips:+.4f}; lower is better)")
+    if has_hr:
+        print(f"\nFinal Results:")
+        print(f"Test Loss: {final_test_loss:.6f}")
+        print(f"Test PSNR: {final_psnr:.2f} dB")
+        print(f"Model PSNR: {model_psnr:.2f} dB (bilinear {bilinear_psnr:.2f}, Δ {model_psnr - bilinear_psnr:+.2f} dB)")
+        print(f"Model SSIM: {model_ssim:.4f} (bilinear {bilinear_ssim:.4f}, Δ {model_ssim - bilinear_ssim:+.4f})")
+        print(f"Model LPIPS: {pred_lpips:.4f} (bilinear {bilinear_lpips:.4f}, Δ {bilinear_lpips - pred_lpips:+.4f}; lower is better)")
+    else:
+        print(f"\nFinal Results (production, no HR GT):")
+        print(f"SR + bilinear GeoTIFFs written under {output_path.parent}")
     print(f"Model output saved to {output_path}")
     
     # Create structured output directory for single sample results
@@ -2445,7 +3269,8 @@ def main():
     sample_dir.mkdir(parents=True, exist_ok=True)
     
     # Save PSNR results to a text file in the structured directory
-    results_text = f"""Super-Resolution Results
+    if has_hr:
+        results_text = f"""Super-Resolution Results
     =======================
 
     Dataset: {args.dataset}
@@ -2469,7 +3294,21 @@ def main():
     - Bilinear Interpolation: {bilinear_lpips:.4f}
     - LPIPS Improvement: {bilinear_lpips - pred_lpips:.4f}
 """
-    if fixed_spot:
+    else:
+        results_text = f"""Super-Resolution Results (production, no HR GT)
+    ==============================================
+
+    Dataset: {args.dataset}
+    Sample ID: {args.sample_id}
+    Downsampling Factor: {args.df}
+    Model: {args.model}
+    Iterations: {args.iters}
+    Completed iters: {iteration}
+
+    No NIB/HR ground truth — LPIPS/PSNR/SSIM vs GT are N/A.
+    Deliverables: qgis/sr_pred.tif, qgis/s2_bilinear.tif, qgis/s2_lr.tif
+"""
+    if has_hr and fixed_spot and not fixed_spot.get("skipped"):
         results_text += f"""
     Fixed Spot ({fixed_spot['hr_pixels']}×{fixed_spot['hr_pixels']} HR, center):
     - Model PSNR: {fixed_spot['model_psnr']:.2f} dB
@@ -2479,6 +3318,10 @@ def main():
     - Bilinear SSIM: {fixed_spot['bilinear_ssim']:.4f}
     - Model LPIPS: {fixed_spot['model_lpips']:.4f}
     - Bilinear LPIPS: {fixed_spot['bilinear_lpips']:.4f}
+"""
+    elif fixed_spot and fixed_spot.get("skipped"):
+        results_text += f"""
+    Fixed Spot skipped: {fixed_spot.get('skip_reason', 'unavailable')}
 """
     results_text += f"""
     Training Results:
@@ -2524,6 +3367,8 @@ def main():
         'dataset': args.dataset,
         'sample_id': str(args.sample_id),
         'run_name': getattr(args, "run_name", None),
+        'has_hr_gt': bool(has_hr),
+        'allow_no_hr': bool(getattr(args, "allow_no_hr", False)),
         'lr_degradation': str(getattr(args, "lr_degradation", "s2_psf")),
         'recon_loss': str(getattr(args, "recon_loss", "mse")),
         'use_gnll': bool(getattr(args, "use_gnll", False)),
@@ -2546,10 +3391,39 @@ def main():
         'final_test_psnr': final_psnr,
         'training_time_seconds': training_time,
         'peak_memory_gb': peak_memory_gb,
+        'provenance': provenance,
+        'eval_alignment': getattr(train_data, "hr_spatial_alignment", None),
+        'model_parameters': parameter_counts,
+        **_fourier_matrix_provenance(model, args),
+        'training_instrumentation': training_instrumentation,
+        'gpu_memory': gpu_memory,
+        'checkpoint': checkpoint_metadata,
         'lr_tile': int(getattr(args, "lr_tile", 0) or 0),
+        'lr_tile_halo': resolve_lr_tile_halo(args),
         'lr_tiles_per_step': raw_tiles_per_step(args),
         'lr_tile_mix': resolve_lr_tile_mix(args),
         'spatial_holdout': float(getattr(args, "spatial_holdout", 0.0) or 0.0),
+        'lr_cloud_mask': {
+            'enabled': bool(getattr(args, "mask_lr_clouds", True)),
+            'has_mask': bool(getattr(train_data, "has_lr_cloud_mask", False)),
+            'clear_fractions': list(getattr(train_data, "lr_clear_fractions", []) or []),
+            'stats_pixels': getattr(train_data, "lr_stats_pixels", None),
+            'stats_masked': list(getattr(train_data, "lr_stats_masked", []) or []),
+        },
+        'halo': {
+            'sr': getattr(args, "halo_sr", None),
+            'west_px': int(getattr(args, "halo_lr_px_west", 0) or 0),
+            'north_px': int(getattr(args, "halo_lr_px_north", 0) or 0),
+            'weight': float(getattr(args, "halo_weight", 0.0) or 0.0),
+            'mode': str(getattr(args, "halo_mode", "full") or "full"),
+            'lf_hr_px': int(getattr(args, "halo_lf_hr_px", 16) or 16),
+        },
+        'base_frame': {
+            'date': getattr(train_data, 'base_frame_date', None),
+            'cloud_frac': getattr(train_data, 'base_frame_cloud_frac', None),
+            'max_cloud_frac': getattr(train_data, 'max_base_cloud_frac', None),
+            'force_date': getattr(train_data, 'force_base_date', None),
+        },
         'holdout_block': int(
             (holdout_state.holdout_block if holdout_state is not None else 0)
             or getattr(args, "holdout_block", 0)
@@ -2589,6 +3463,7 @@ def main():
             'bilinear': bilinear_lpips,
             'improvement': bilinear_lpips - pred_lpips
         },
+        'query_gsd': query_gsd_metrics,
         'training': {
             'final_test_loss': final_test_loss,
             'final_test_psnr': final_psnr,
@@ -2604,7 +3479,18 @@ def main():
                 'trans_loss': trans_loss_list,
                 'total_loss': total_loss_list,
                 'val_loss': val_loss_list if holdout_state is not None else [],
+                'elapsed_step_seconds': elapsed_step_list,
+                'elapsed_wall_seconds': elapsed_wall_list,
+                **({k: v for k, v in sub_history.items()} if sub_history["sub_model_lpips"] else {}),
             },
+            **(
+                {'eval_subwindow_lr': list(_parse_eval_subwindow(args))}
+                if _parse_eval_subwindow(args) is not None else {}
+            ),
+            **(
+                {'eval_subwindow_reference': train_data.sub_reference["provenance"]}
+                if getattr(train_data, "sub_reference", None) is not None else {}
+            ),
         }
     }
     if int(getattr(args, "lr_size", 0) or 0) > 0:
@@ -2614,6 +3500,7 @@ def main():
     
     with open(sample_dir / "metrics.json", "w") as f:
         json.dump(metrics_dict, f, indent=2)
+    write_affine_dump(model, train_data, sample_dir)
     
     print(f"Results saved to: {sample_dir}")
     print(f"PSNR results also saved to psnr_results.txt (current directory)")

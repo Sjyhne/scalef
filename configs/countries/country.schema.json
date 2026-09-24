@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scalef.local/schemas/country.schema.json",
+  "title": "ScaleF national country configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "country",
+    "inputs",
+    "inventory",
+    "paths"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "country": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "iso_a2",
+        "iso_a3"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "iso_a2": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "iso_a3": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "land_outline_geojson"
+      ],
+      "properties": {
+        "land_outline_geojson": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative or absolute authoritative WGS84 land-outline GeoJSON."
+        },
+        "land_outline_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dataset",
+            "source_url",
+            "source_sha256"
+          ],
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scale": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "source_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "scope_note": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mgrs_list_json",
+        "mgrs_bboxes_json"
+      ],
+      "properties": {
+        "mgrs_list_json": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mgrs_bboxes_json": {
+          "type": "string",
+          "minLength": 1
+        },
+        "min_tile_land_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "include_bbox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          },
+          "description": "Optional WGS84 processing extent [west,south,east,north], e.g. to exclude territories."
+        },
+        "source_role": {
+          "type": "string",
+          "enum": [
+            "curated_operational",
+            "outline_derived"
+          ]
+        },
+        "expected_runnable_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_source_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "diagnostic_mgrs_list_json": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_root",
+        "s2_root"
+      ],
+      "properties": {
+        "plan_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "s2_root": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "roots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "production": {"type": "string", "minLength": 1},
+        "plans": {"type": "string", "minLength": 1},
+        "data": {"type": "string", "minLength": 1},
+        "tiles": {"type": "string", "minLength": 1},
+        "mosaics": {"type": "string", "minLength": 1},
+        "results": {"type": "string", "minLength": 1}
+      },
+      "minProperties": 1
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date": {"type": "string", "format": "date"},
+        "start_date": {"type": "string", "format": "date"},
+        "end_date": {"type": "string", "format": "date"},
+        "side": {"type": "integer", "minimum": 1},
+        "overlap_frac": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
+        "max_frames": {"type": "integer", "minimum": 1},
+        "max_snow_frac": {"type": "number", "minimum": -1, "maximum": 1},
+        "max_cloud_frac": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_valid_frac": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_stac_items": {"type": "integer", "minimum": 1},
+        "max_stac_cloud": {"type": "number", "minimum": 0, "maximum": 100},
+        "min_land_frac": {"type": "number", "minimum": 0, "maximum": 1},
+        "mainland_only": {"type": "boolean"},
+        "land_mask": {"type": "string", "minLength": 1},
+        "iters": {"type": "integer", "minimum": 1},
+        "run_prefix": {"type": "string", "minLength": 1}
+      }
+    },
+    "production": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": ["all", "identity_changed"]
+        },
+        "run_prefix": {"type": "string", "minLength": 1},
+        "fallback_prefix": {"type": "string", "minLength": 1}
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ramp_px": {"type": "integer", "minimum": 0},
+        "harmonize": {"type": "boolean"},
+        "harmonize_strip_px": {"type": "integer", "minimum": 1},
+        "harmonize_segments": {"type": "integer", "minimum": 2},
+        "harmonize_regularization": {"type": "number", "minimum": 0},
+        "harmonize_max_offset": {"type": "number", "minimum": 0, "maximum": 1},
+        "harmonize_smoothness": {"type": "number", "minimum": 0},
+        "max_harmonized_edge_p95": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_same_identity_overlap_p95": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_identity_risk_overlap_p95": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "cross_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "audit_only": {"type": "boolean"},
+        "common_crs": {"type": "string", "minLength": 1},
+        "adjacency_tolerance_m": {"type": "number", "minimum": 0},
+        "slack_cloud": {"type": "number", "minimum": 0, "maximum": 1},
+        "center_date": {"type": "string", "format": "date"},
+        "root": {"type": "string", "minLength": 1},
+        "out_dir": {"type": "string", "minLength": 1},
+        "inputs_manifest": {"type": "string", "minLength": 1},
+        "report": {"type": "string", "minLength": 1}
+      }
+    },
+    "cross": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dst_crs": {"type": "string", "minLength": 1},
+        "resolution": {"type": "number", "exclusiveMinimum": 0},
+        "out": {"type": "string", "minLength": 1},
+        "max_overlap_mae": {"type": "number", "minimum": 0},
+        "max_nodata_fraction": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "territory_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "excluded"],
+      "properties": {
+        "included": {"type": "string", "minLength": 1},
+        "excluded": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "inventory_exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mgrs", "status", "reason"],
+        "properties": {
+          "mgrs": {
+            "type": "string",
+            "pattern": "^[0-9]{2}[C-HJ-NP-X][A-HJ-NP-Z]{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["unavailable", "excluded"]
+          },
+          "reason": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

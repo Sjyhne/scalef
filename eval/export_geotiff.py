@@ -59,16 +59,17 @@ def write_rgb_geotiff(
 def export_qgis_layers(
     out_dir: Path | str,
     *,
-    hr_gt_hwc: np.ndarray,
     sr_pred_hwc: np.ndarray,
     s2_bilinear_hwc: np.ndarray,
+    hr_gt_hwc: np.ndarray | None = None,
     dataset=None,
     geo_meta: dict[str, Any] | None = None,
     lr_hwc: np.ndarray | None = None,
 ) -> dict[str, str]:
-    """Write HR GT / SR / S2-bilinear (+ optional LR) GeoTIFFs for QGIS.
+    """Write SR / S2-bilinear (+ optional HR GT / LR) GeoTIFFs for QGIS.
 
     Uses the dataset S2 CRS and HR affine so layers stack correctly.
+    Production runs omit ``hr_gt_hwc``.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -85,11 +86,12 @@ def export_qgis_layers(
         )
 
     written: dict[str, str] = {}
-    pairs = [
-        ("hr_gt.tif", hr_gt_hwc),
+    pairs: list[tuple[str, np.ndarray]] = [
         ("sr_pred.tif", sr_pred_hwc),
         ("s2_bilinear.tif", s2_bilinear_hwc),
     ]
+    if hr_gt_hwc is not None:
+        pairs.insert(0, ("hr_gt.tif", hr_gt_hwc))
     for name, arr in pairs:
         p = write_rgb_geotiff(out_dir / name, arr, transform=hr_transform, crs=crs)
         written[name] = str(p)
@@ -98,16 +100,23 @@ def export_qgis_layers(
         p = write_rgb_geotiff(out_dir / "s2_lr.tif", lr_hwc, transform=lr_transform, crs=crs)
         written["s2_lr.tif"] = str(p)
 
+    notes = (
+        "Float32 reflectance ~[0,1]. "
+        "Open in QGIS and set the same CRS; layers should overlay."
+    )
+    if hr_gt_hwc is not None:
+        notes = (
+            "Float32 reflectance ~[0,1]. hr_gt is harmonized (+ spatially aligned) NIB. "
+            "Open in QGIS and set the same CRS; layers should overlay."
+        )
     meta = {
         "crs": str(crs),
         "hr_gsd_m": geo_meta.get("hr_gsd_m"),
         "native_gsd_m": geo_meta.get("native_gsd_m"),
         "df": geo_meta.get("df"),
+        "has_hr_gt": hr_gt_hwc is not None,
         "files": written,
-        "notes": (
-            "Float32 reflectance ~[0,1]. hr_gt is harmonized (+ spatially aligned) NIB. "
-            "Open in QGIS and set the same CRS; layers should overlay."
-        ),
+        "notes": notes,
     }
     import json
 

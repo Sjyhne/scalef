@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "status": "blocked",
+  "country": {
+    "name": "Denmark",
+    "iso_a2": "DK",
+    "iso_a3": "DNK"
+  },
+  "blocker": "missing_authoritative_country_land_outline_geojson",
+  "required_input": {
+    "suggested_path": "production/country_inventory/denmark/denmark_land_outline.geojson",
+    "format": "GeoJSON FeatureCollection, Feature, Polygon, or MultiPolygon",
+    "crs": "WGS84 longitude/latitude (EPSG:4326 or CRS84)",
+    "geometry_requirement": "Authoritative Denmark land outline with closed polygon rings, including every island intended for national processing and an explicit decision on whether the Faroe Islands and Greenland are excluded from this Denmark run.",
+    "prohibited_substitutes": [
+      "invented MGRS tile IDs",
+      "hand-drawn bounding boxes",
+      "geometry inferred from the Norway inventory"
+    ]
+  },
+  "config_template_after_input_arrives": {
+    "$schema": "country.schema.json",
+    "schema_version": 1,
+    "country": {
+      "name": "Denmark",
+      "iso_a2": "DK",
+      "iso_a3": "DNK"
+    },
+    "inputs": {
+      "land_outline_geojson": "<authoritative-local-denmark-outline.geojson>"
+    },
+    "inventory": {
+      "mgrs_list_json": "production/country_inventory/denmark/mgrs_list.derived.json",
+      "mgrs_bboxes_json": "production/country_inventory/denmark/mgrs_bboxes.derived.json",
+      "min_tile_land_fraction": 0.0
+    },
+    "paths": {
+      "plan_root": "production/denmark_national_2025/plans",
+      "s2_root": "data/s2_revisits/denmark_national_2025"
+    }
+  },
+  "resume_steps": [
+    "Replace the placeholder in config_template_after_input_arrives with the accepted local outline path.",
+    "Save that template as configs/countries/denmark.json.",
+    "Run: python scripts/derive_country_mgrs_inventory.py --config configs/countries/denmark.json"
+  ]
+}

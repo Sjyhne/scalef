@@ -98,6 +98,35 @@ def test_early_stop_regression_guard():
     assert state.stopped_iter == 200
 
 
+def test_early_stop_ema_smooths_and_holdout_regression_default():
+    from eval.lr_holdout import default_early_stop_ema, default_early_stop_regression
+
+    assert default_early_stop_ema("holdout_mse") == 0.4
+    assert default_early_stop_regression("holdout_mse") == 0.01
+    assert default_early_stop_ema("lpips") == 0.0
+
+    model = torch.nn.Linear(2, 2)
+    state = EarlyStopState(
+        train_masks=[build_holdout_mask(8, 8, 4, 0.25, seed=0)],
+        val_ids=[0],
+        patience=3,
+        min_iters=10,
+        metric="holdout_mse",
+        ema_alpha=0.5,
+        max_regression=0.0,
+        min_delta=0.0,
+    )
+    # Noisy raw scores; EMA should not treat a single spike as improvement forever.
+    assert not state.observe(10, 1.0, model)
+    assert state.score_ema_history[-1] == 1.0
+    assert not state.observe(20, 1.2, model)  # EMA 1.1 — no improve
+    assert abs(state.score_ema_history[-1] - 1.1) < 1e-6
+    assert not state.observe(30, 1.15, model)
+    assert state.observe(40, 1.15, model)
+    assert state.stopped
+    assert state.best_iter == 10
+
+
 def test_holdout_block_origins_only_held_blocks():
     mask = torch.ones(1, 16, 16, 1, dtype=torch.bool)
     mask[:, 8:16, 0:8, :] = False

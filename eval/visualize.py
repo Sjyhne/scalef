@@ -81,25 +81,46 @@ def _metrics_table_text(
     image_metrics: dict[str, Any],
     fixed_spot: dict[str, Any] | None = None,
 ) -> str:
+    def _fmt(v: Any, spec: str) -> str:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return "n/a"
+        if x != x:  # NaN
+            return "n/a"
+        return format(x, spec)
+
     rows = [
         ("Metric", "Bilinear", "Model", "Δ"),
         (
             "PSNR (dB)",
-            f"{image_metrics['bilinear_psnr']:.2f}",
-            f"{image_metrics['model_psnr']:.2f}",
-            f"{image_metrics['model_psnr'] - image_metrics['bilinear_psnr']:+.2f}",
+            _fmt(image_metrics.get("bilinear_psnr"), ".2f"),
+            _fmt(image_metrics.get("model_psnr"), ".2f"),
+            _fmt(
+                (image_metrics.get("model_psnr") or float("nan"))
+                - (image_metrics.get("bilinear_psnr") or float("nan")),
+                "+.2f",
+            ),
         ),
         (
             "SSIM",
-            f"{image_metrics['bilinear_ssim']:.3f}",
-            f"{image_metrics['model_ssim']:.3f}",
-            f"{image_metrics['model_ssim'] - image_metrics['bilinear_ssim']:+.3f}",
+            _fmt(image_metrics.get("bilinear_ssim"), ".3f"),
+            _fmt(image_metrics.get("model_ssim"), ".3f"),
+            _fmt(
+                (image_metrics.get("model_ssim") or float("nan"))
+                - (image_metrics.get("bilinear_ssim") or float("nan")),
+                "+.3f",
+            ),
         ),
         (
             "LPIPS ↓",
-            f"{image_metrics['bilinear_lpips']:.3f}",
-            f"{image_metrics['model_lpips']:.3f}",
-            f"{image_metrics['bilinear_lpips'] - image_metrics['model_lpips']:+.3f}",
+            _fmt(image_metrics.get("bilinear_lpips"), ".3f"),
+            _fmt(image_metrics.get("model_lpips"), ".3f"),
+            _fmt(
+                (image_metrics.get("bilinear_lpips") or float("nan"))
+                - (image_metrics.get("model_lpips") or float("nan")),
+                "+.3f",
+            ),
         ),
     ]
     if fixed_spot:
@@ -149,27 +170,41 @@ def save_eval_visualizations(
     lr_hwc: np.ndarray,
     bilinear_hwc: np.ndarray,
     pred_hwc: np.ndarray,
-    gt_hwc: np.ndarray,
+    gt_hwc: np.ndarray | None,
     image_metrics: dict[str, Any],
     fixed_spot: dict[str, Any] | None = None,
     sample_label: str = "",
 ) -> None:
-    """Write SR comparison figures and a metrics summary into ``output_dir``."""
+    """Write SR comparison figures and a metrics summary into ``output_dir``.
+
+    When ``gt_hwc`` is None (production, no HR GT), the GT panel and spot
+    GT-error panels are omitted.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     lr = _clip01(lr_hwc)
     bil = _clip01(bilinear_hwc)
     pred = _clip01(pred_hwc)
-    gt = _clip01(gt_hwc)
-    lr, bil, pred, gt = _shared_display_stretch(lr, bil, pred, gt)
+    gt = _clip01(gt_hwc) if gt_hwc is not None else None
+    if gt is not None:
+        lr, bil, pred, gt = _shared_display_stretch(lr, bil, pred, gt)
+    else:
+        lr, bil, pred = _shared_display_stretch(lr, bil, pred)
 
     spot_slices = fixed_spot.get("slices_hr") if fixed_spot else None
     prefix = f"{sample_label} — " if sample_label else ""
     metrics_text = _metrics_table_text(image_metrics, fixed_spot)
 
-    fig = plt.figure(figsize=(18, 5.5))
-    gs = GridSpec(1, 5, figure=fig, width_ratios=[1.0, 1.0, 1.0, 1.0, 0.72], wspace=0.08)
+    n_img = 4 if gt is not None else 3
+    fig = plt.figure(figsize=(18 if gt is not None else 14, 5.5))
+    gs = GridSpec(
+        1,
+        n_img + 1,
+        figure=fig,
+        width_ratios=[1.0] * n_img + [0.72],
+        wspace=0.08,
+    )
 
     panels = [
         (gs[0, 0], lr, f"{prefix}LR input", None, None, None),
@@ -189,8 +224,9 @@ def save_eval_visualizations(
             image_metrics.get("model_ssim"),
             image_metrics.get("model_lpips"),
         ),
-        (gs[0, 3], gt, f"{prefix}HR ground truth", None, None, None),
     ]
+    if gt is not None:
+        panels.append((gs[0, 3], gt, f"{prefix}HR ground truth", None, None, None))
     for spec, img, label, psnr, ssim, lpips in panels:
         ax = fig.add_subplot(spec)
         ax.imshow(img)
@@ -199,12 +235,13 @@ def save_eval_visualizations(
         if spot_slices and label != f"{prefix}LR input":
             _draw_spot_rect(ax, spot_slices)
 
-    ax_tbl = fig.add_subplot(gs[0, 4])
+    ax_tbl = fig.add_subplot(gs[0, n_img])
     ax_tbl.axis("off")
     ax_tbl.text(
         0.0,
         1.0,
-        "Full-frame metrics\n\n" + metrics_text,
+        ("Full-frame metrics\n\n" if gt is not None else "Production (no HR GT)\n\n")
+        + metrics_text,
         transform=ax_tbl.transAxes,
         va="top",
         ha="left",
@@ -213,18 +250,25 @@ def save_eval_visualizations(
         bbox={"boxstyle": "round,pad=0.4", "facecolor": "#f7f7f7", "edgecolor": "#cccccc"},
     )
 
-    fig.suptitle(f"{prefix}Super-resolution comparison", fontsize=14, fontweight="bold", y=1.02)
+    title = (
+        f"{prefix}Super-resolution comparison"
+        if gt is not None
+        else f"{prefix}Super-resolution (no HR GT)"
+    )
+    fig.suptitle(title, fontsize=14, fontweight="bold", y=1.02)
     plt.savefig(output_dir / "comparison.png", bbox_inches="tight", pad_inches=0.12, dpi=300)
     plt.close()
 
     (output_dir / "metrics_table.txt").write_text(metrics_text + "\n", encoding="utf-8")
 
-    for name, arr in (
+    singles = [
         ("model_output_aligned.png", pred),
-        ("ground_truth.png", gt),
         ("bilinear_baseline.png", bil),
         ("lr_original.png", lr),
-    ):
+    ]
+    if gt is not None:
+        singles.insert(1, ("ground_truth.png", gt))
+    for name, arr in singles:
         plt.figure(figsize=(8, 8))
         plt.imshow(arr)
         plt.axis("off")
@@ -232,7 +276,7 @@ def save_eval_visualizations(
         plt.savefig(output_dir / name, bbox_inches="tight", pad_inches=0, dpi=300)
         plt.close()
 
-    if not fixed_spot or not spot_slices:
+    if gt is None or not fixed_spot or not spot_slices:
         _save_metrics_card(output_dir, sample_label, image_metrics, fixed_spot=None)
         return
 

@@ -1,0 +1,54 @@
+{
+  "country": "norway",
+  "roots": {
+    "production": "production/national_2025",
+    "plans": "production/national_2025/plans",
+    "data": "data/s2_revisits/national_2025_v2",
+    "tiles": "data/s2_revisits/national_2025_v2",
+    "mosaics": "production/mosaics",
+    "results": "production/national_2025/runs"
+  },
+  "recipe": {
+    "land_mask": "production/cloud_availability/norway_outline_ne50m.geojson",
+    "overlap_frac": 0.125
+  },
+  "production": {
+    "scope": "all",
+    "run_prefix": "prod_k4_ovl12_icm",
+    "fallback_prefix": "prod_k4_ovl12_icm"
+  },
+  "delivery": {
+    "ramp_px": 128,
+    "harmonize": true,
+    "harmonize_strip_px": 256,
+    "harmonize_segments": 16,
+    "harmonize_regularization": 0.02,
+    "harmonize_max_offset": 0.04,
+    "harmonize_smoothness": 0.1,
+    "max_same_identity_overlap_p95": 0.006,
+    "max_identity_risk_overlap_p95": 0.01
+  },
+  "cross_identity": {
+    "enabled": true,
+    "audit_only": false,
+    "common_crs": "EPSG:3035",
+    "adjacency_tolerance_m": 1.0,
+    "slack_cloud": 0.05,
+    "center_date": "2025-07-15"
+  },
+  "cross": {
+    "dst_crs": "EPSG:3035",
+    "resolution": 2.5,
+    "out": "production/national_2025/mosaics/norway_two_granule_gate_sr_2p5m.tif",
+    "max_overlap_mae": 0.055,
+    "max_nodata_fraction": 0.15
+  },
+  "inventory": [
+    {
+      "mgrs": "32VNM"
+    },
+    {
+      "mgrs": "32VPM"
+    }
+  ]
+}

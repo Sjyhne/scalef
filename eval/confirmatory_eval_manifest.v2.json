@@ -1,0 +1,417 @@
+{
+  "schema": "scalef.confirmatory_eval.v1",
+  "source": "eval/spatial_alignment.json",
+  "source_sha256": "0a8a30e3b229f4a16e9fb337bc7bc88a026c6256b88c7226910356accf64895b",
+  "source_version": 1,
+  "source_method": "hr_phase_corr + local_hr_mse_refine",
+  "cities": {
+    "algard": {
+      "df": 4,
+      "s2_dir_name": "algard_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.55
+      },
+      "confirmatory_s2_dir_name": "algard_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "3a38af9b2bb88ed519c466ff9234c2abb8f18891e75a425000029c9117bc82f8",
+      "frame_identity_sha256": "7455355cbc94cf08c6734ee65e41a63bd411a5168e8c0b98eebd49d736b43226"
+    },
+    "alta": {
+      "df": 4,
+      "s2_dir_name": "alta_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2018-07-02",
+      "nib_acquisition_date": "2018-07-03",
+      "hr_shift_hr_px": {
+        "dy": 2.07,
+        "dx": -0.01
+      },
+      "confirmatory_s2_dir_name": "alta_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "b334d7fa6f1ccce1231b70ec91624e93901345fd4392bc12b4a08d6530c84df4",
+      "frame_identity_sha256": "74465d4c90732fe29e231fe68d1a613333b3045ea5aa4909323b0fcca0b796d0"
+    },
+    "amli": {
+      "df": 4,
+      "s2_dir_name": "amli_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-02",
+      "nib_acquisition_date": "2024-08-01",
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.51
+      },
+      "confirmatory_s2_dir_name": "amli_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "d71c2741d805a60e2f5a525802f1224bce1da29ca29a480d1aeb485ccd27b1ab",
+      "frame_identity_sha256": "86297c364ee813c7d3b88f6948831ebcdef8e44df8439ff2c78205922d07877b"
+    },
+    "asker": {
+      "df": 4,
+      "s2_dir_name": "asker_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": -0.3
+      },
+      "confirmatory_s2_dir_name": "asker_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "37fc657bc6a2dd44144a9f5ecc5c6326c0b981d941eb26bf5d1595c9827be21d",
+      "frame_identity_sha256": "77541364476ee808a84579a0ef364628c1dfc7ae4b637c8abfc61d5774abc0ac"
+    },
+    "bergen": {
+      "df": 4,
+      "s2_dir_name": "bergen_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "hr_shift_hr_px": {
+        "dy": -0.79,
+        "dx": 1.02
+      },
+      "confirmatory_s2_dir_name": "bergen_lr512",
+      "requested_frames": 10,
+      "available_frames": 10,
+      "s2_meta_sha256": "d64a8f9957217151383bad6e0aaa9745d33f19a4f9d66905fad8cfa1ff0c4356",
+      "frame_identity_sha256": "68aa99dbef558611ea7fda8688ef8d4d4f942f35ba8f76511ebe9b3a6946f995"
+    },
+    "flekkefjord": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "hr_shift_hr_px": {
+        "dy": -0.52,
+        "dx": 0.56
+      },
+      "confirmatory_s2_dir_name": "flekkefjord_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "1707496123178f0ad79763beb871c2847ffe3c7c203aa6dd09beeb803be8f034",
+      "frame_identity_sha256": "a658cfe8daf0363ec5276f9d74a140453ac2dafd9524a5e8c0ed90ba8ab7af81"
+    },
+    "karasjok": {
+      "df": 4,
+      "s2_dir_name": "karasjok_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-28",
+      "nib_acquisition_date": "2023-06-30",
+      "hr_shift_hr_px": {
+        "dy": -0.01,
+        "dx": -1.07
+      },
+      "confirmatory_s2_dir_name": "karasjok_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "ad18c9266deea1fff10234d14340c32567e765612eac06396e763b77d02bd68d",
+      "frame_identity_sha256": "2a02699e66ff34f57f44520df96db55df847e13a0ef67c03605924f853227441"
+    },
+    "kautokeino": {
+      "df": 4,
+      "s2_dir_name": "kautokeino_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-30",
+      "nib_acquisition_date": "2023-06-30",
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.25
+      },
+      "confirmatory_s2_dir_name": "kautokeino_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "de3e1e4996da964dd0d1ad4eaaab9c2cab3bb02cf4b0757832c443f9d8698286",
+      "frame_identity_sha256": "55516dfea3d193c8364b7fd03ebb97c0f6e83433a66bf5377c80cf0a17c33c17"
+    },
+    "melhus": {
+      "df": 4,
+      "s2_dir_name": "melhus_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "hr_shift_hr_px": {
+        "dy": -1.31,
+        "dx": 1.01
+      },
+      "confirmatory_s2_dir_name": "melhus_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "c8f33c9e0a4b1cda23e5e0b72d860baa2ddfd0d7d6e0e6742e12ae19e78caabb",
+      "frame_identity_sha256": "a0d2dda62100200329d87685c9de60788b8cb04c9255e210e133825ef38d6aae"
+    },
+    "naerbo": {
+      "df": 4,
+      "s2_dir_name": "naerbo_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "hr_shift_hr_px": {
+        "dy": -0.5,
+        "dx": -0.25
+      },
+      "confirmatory_s2_dir_name": "naerbo_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "33f600e27fd8f5f2f7556e8a338fc7c6ec2a93c63008db8843874d0dd89e1127",
+      "frame_identity_sha256": "96a9b0d5dbe4195fb17b5f3ba50d32366f36eac59a409eb06b671fd1de3069dc"
+    },
+    "nittedal": {
+      "df": 4,
+      "s2_dir_name": "nittedal_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 1.29
+      },
+      "confirmatory_s2_dir_name": "nittedal_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "71d6df6a0c6c243eba2251eda765810e17c2b5704ba42539f97792533cd4055b",
+      "frame_identity_sha256": "2f52cac7ee19f0a947e60614bfb0a7896c35333f8c4691a0522edf36f2e47635"
+    },
+    "rafsbotn": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "hr_shift_hr_px": {
+        "dy": -0.62,
+        "dx": 0.28
+      },
+      "confirmatory_s2_dir_name": "rafsbotn_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "dd7571365398bb44daf0d8ed8a446049f0a1b78426d42b9f5d6960bdb7468bf4",
+      "frame_identity_sha256": "2f8dff482e2a5a4e04d727f5c882f152b53022b5da505f7ef3fe9c6e664e0dee"
+    },
+    "rana": {
+      "df": 4,
+      "s2_dir_name": "rana_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2019-07-27",
+      "nib_acquisition_date": "2019-07-25",
+      "hr_shift_hr_px": {
+        "dy": 1.55,
+        "dx": 1.04
+      },
+      "confirmatory_s2_dir_name": "rana_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "a53efb0af4fc7fb196b755703403a66072a2ac57ad52808837e84a1c678d8a72",
+      "frame_identity_sha256": "6dd553bb953186c954ccd3653eb807e63769a3cb93125ffa45996f6fda258cb3"
+    },
+    "stavanger": {
+      "df": 4,
+      "s2_dir_name": "stavanger_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-05-10",
+      "nib_acquisition_date": "2025-05-10",
+      "hr_shift_hr_px": {
+        "dy": -0.0,
+        "dx": -0.0
+      },
+      "confirmatory_s2_dir_name": "stavanger_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "888e15a31cc43941230dad82e9b426b2fc73ccc93a4e758e570da7fcbbe953d5",
+      "frame_identity_sha256": "057f1579c72619193a819fd756f142a7af81a3a794ade49ba8aa9688964ba7d9"
+    },
+    "tromso": {
+      "df": 4,
+      "s2_dir_name": "tromso_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2021-08-08",
+      "nib_acquisition_date": "2021-08-07",
+      "hr_shift_hr_px": {
+        "dy": 4.8,
+        "dx": 1.3599999999999999
+      },
+      "confirmatory_s2_dir_name": "tromso_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "ac3f9fe83691dc6f81043814930c8ce5ee9fbd7e3f5870e3dd5492baea4dff16",
+      "frame_identity_sha256": "651481a6acab0c1bb89ae13f095b91c4aea984b0d247aa2252f51dccb06ca21d"
+    },
+    "trondheim": {
+      "df": 4,
+      "s2_dir_name": "trondheim_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 0.99
+      },
+      "confirmatory_s2_dir_name": "trondheim_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "58945e8ce80bf602bd24293f30c77ba46c2a6b21b2e4d42e16b2a0a64aac7cbe",
+      "frame_identity_sha256": "a9473e711d1010d084ea151828f24e0dc0b792986c3c5a2c579234aa810a8644"
+    },
+    "vennesla": {
+      "df": 4,
+      "s2_dir_name": "vennesla_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "hr_shift_hr_px": {
+        "dy": 1.02,
+        "dx": 2.04
+      },
+      "confirmatory_s2_dir_name": "vennesla_lr512",
+      "requested_frames": 16,
+      "available_frames": 16,
+      "s2_meta_sha256": "c44b3a12cfcf4252ab57a5dced707db5fb19d3a9897a39b5a2ebb898117a407e",
+      "frame_identity_sha256": "50eda4e52ec9c0b14005e931ad0402437e80d5fc0b6e747e87c2df40a37f52a2"
+    }
+  }
+}

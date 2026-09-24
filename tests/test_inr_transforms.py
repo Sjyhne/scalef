@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
 
 from models.inr import INRBase
+from optimize import build_model
 
 
 def _module(num_frames: int = 6) -> INRBase:
@@ -82,3 +85,19 @@ def test_color_transform_leaves_frame_zero_without_grad():
     for ch in range(3):
         assert module.color_transforms[0][ch].weight.grad is None
         assert module.color_transforms[3][ch].weight.grad is not None
+
+
+def test_control_flags_freeze_alignment_and_radiometry():
+    args = SimpleNamespace(
+        num_samples=3,
+        use_gnll=False,
+        use_laplace_nll=False,
+        hetero_scale="pixel",
+        hetero_region_size=4,
+        lr_degradation="s2_psf_m",
+        freeze_affines=True,
+        freeze_radiometry=True,
+    )
+    model = build_model(args, None, torch.nn.Identity(), torch.device("cpu"))
+    assert not any(parameter.requires_grad for parameter in model.affine_params.parameters())
+    assert not any(parameter.requires_grad for parameter in model.color_transforms.parameters())

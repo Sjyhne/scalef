@@ -9,6 +9,7 @@ from models.lr_tile_sampler import (
     LrTileSampler,
     build_cross_frame_tile_sampler,
     build_lr_tile_sampler,
+    crop_hr_support_with_halo,
     crop_lr_hr_tensors,
     hr_window_for_lr_tile,
     infer_df,
@@ -229,6 +230,34 @@ def test_cross_same_tile_build():
     assert cross is not None
     assert cross.mode == "same_tile"
     assert build_lr_tile_sampler(dataset, args) is None
+
+
+def _field_lr(coords, lr_hw):
+    from models.lr_alignment import align_prediction_hwc_to_target
+
+    x, y = coords[..., 0], coords[..., 1]
+    hr = torch.stack((torch.sin(211 * x) * torch.cos(97 * y), torch.cos(157 * x + 3 * y), x * y), -1)
+    target = torch.zeros(coords.shape[0], *lr_hw, 3)
+    args = SimpleNamespace(lr_degradation="s2_psf_m")
+    return align_prediction_hwc_to_target(hr, target, args=args, device=torch.device("cpu"))
+
+
+def test_halo_window_matches_full_field_crop():
+    from data import _make_coord_grid
+
+    lr, tile, df, halo = 64, 16, 4, 2
+    coords = _make_coord_grid(lr * df, lr * df).unsqueeze(0).double()
+    full = _field_lr(coords, (lr, lr))
+    lr_target = torch.zeros(1, lr, lr, 3)
+    for row, col in [(0, 0), (0, 32), (16, 16), (48, 48)]:
+        ref = full[:, row:row + tile, col:col + tile]
+        plain, _, _ = crop_lr_hr_tensors(coords, lr_target, row, col, tile)
+        no_halo = _field_lr(plain, (tile, tile))
+        padded = crop_hr_support_with_halo(coords, row, col, tile, halo, df)
+        with_halo = _field_lr(padded, (tile + 2 * halo, tile + 2 * halo))[:, halo:-halo, halo:-halo]
+        assert torch.allclose(with_halo, ref, atol=1e-10)
+        if row == 16:
+            assert (no_halo - ref).abs().max() > 1e-3
 
 
 def test_resolve_lr_tile_mix():

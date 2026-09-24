@@ -1,0 +1,96 @@
+{
+  "$schema": "country.schema.json",
+  "schema_version": 1,
+  "country": {
+    "name": "Denmark",
+    "iso_a2": "DK",
+    "iso_a3": "DNK"
+  },
+  "inputs": {
+    "land_outline_geojson": "production/country_inventory/denmark/denmark_land_outline_ne50m.geojson",
+    "land_outline_provenance": {
+      "dataset": "Natural Earth Admin-0 Countries",
+      "scale": "1:50m",
+      "source_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson",
+      "source_sha256": "3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb",
+      "scope_note": "Extracted Denmark proper; Faroe Islands and Greenland are excluded."
+    }
+  },
+  "inventory": {
+    "mgrs_list_json": "production/country_inventory/denmark/mgrs_list.derived.json",
+    "mgrs_bboxes_json": "production/country_inventory/denmark/mgrs_bboxes.derived.json",
+    "min_tile_land_fraction": 0.0,
+    "include_bbox": [
+      8.0,
+      54.5,
+      15.3,
+      57.9
+    ],
+    "source_role": "outline_derived",
+    "expected_runnable_count": 20
+  },
+  "paths": {
+    "plan_root": "production/denmark_national_2025/plans",
+    "s2_root": "data/s2_revisits/denmark_national_2025"
+  },
+  "roots": {
+    "production": "production/denmark_national_2025",
+    "plans": "production/denmark_national_2025/plans",
+    "data": "data/s2_revisits/denmark_national_2025",
+    "tiles": "data/s2_revisits/denmark_national_2025",
+    "mosaics": "production/denmark_national_2025/mosaics",
+    "results": "production/denmark_national_2025/runs"
+  },
+  "recipe": {
+    "date": "2025-07-15",
+    "start_date": "2025-05-31",
+    "end_date": "2025-08-29",
+    "side": 512,
+    "max_frames": 16,
+    "max_snow_frac": 0.05,
+    "max_cloud_frac": 0.15,
+    "min_valid_frac": 0.85,
+    "max_stac_items": 400,
+    "max_stac_cloud": 100.0,
+    "min_land_frac": 0.0,
+    "mainland_only": true,
+    "land_mask": "production/country_inventory/denmark/denmark_land_outline_ne50m.geojson",
+    "iters": 5000
+  },
+  "production": {
+    "scope": "all",
+    "run_prefix": "prod_k4_icm",
+    "fallback_prefix": "prod_k4_icm"
+  },
+  "delivery": {
+    "ramp_px": 128,
+    "harmonize": true,
+    "harmonize_strip_px": 256,
+    "harmonize_segments": 16,
+    "harmonize_regularization": 0.02,
+    "harmonize_max_offset": 0.04,
+    "harmonize_smoothness": 0.1,
+    "max_harmonized_edge_p95": 0.005
+  },
+  "cross_identity": {
+    "enabled": true,
+    "audit_only": false,
+    "common_crs": "EPSG:3035",
+    "adjacency_tolerance_m": 1.0,
+    "slack_cloud": 0.05,
+    "center_date": "2025-07-15"
+  },
+  "cross": {
+    "dst_crs": "EPSG:3035",
+    "resolution": 2.5,
+    "out": "production/denmark_national_2025/mosaics/denmark_sr_2p5m.tif",
+    "max_overlap_mae": 0.055
+  },
+  "territory_scope": {
+    "included": "Denmark proper",
+    "excluded": [
+      "Faroe Islands",
+      "Greenland"
+    ]
+  }
+}

@@ -1,11 +1,103 @@
 {
   "version": 1,
   "method": "hr_phase_corr + local_hr_mse_refine",
-  "notes": "Per-city residual translation between S2-bilinear (base frame) and harmonized NIB HR. Apply hr_shift_hr_px to NIB HR for evaluation only; do not shift S2 LR revisits used for training. Focus cities (except stavanger) on *_lr512; stavanger on native 295\u00d740 rectangle.",
+  "notes": "Per-tile residual translation between S2-bilinear (base frame) and harmonized NIB HR. tiles[s2_dir.name] is the primary lookup; city keys remain as fallback. Apply hr_shift_hr_px to NIB HR for evaluation only; do not shift S2 LR revisits used for training. Focus cities: 8; new NIB AOIs: 9; tile entries: 112.",
   "created_utc": "2026-09-01T10:00:43Z",
   "refine_radius_hr_px": 2.0,
   "refine_step_hr_px": 0.25,
   "cities": {
+    "algard": {
+      "df": 4,
+      "s2_dir_name": "algard_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.55
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.51,
+        "dx": -0.55
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.87300109863281,
+        "ssim": 0.9505383372306824,
+        "ncc": 0.6324513106512092,
+        "mse": 0.0003307594814025537
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.9972038269043,
+        "ssim": 0.9510164856910706,
+        "ncc": 0.6402130578884004,
+        "mse": 0.00032143430676622895
+      },
+      "delta": {
+        "psnr": 0.12420272827148438,
+        "ssim": 0.0004781484603881836,
+        "ncc": 0.007761747237191252,
+        "mse": 9.325174636324739e-06
+      }
+    },
+    "alta": {
+      "df": 4,
+      "s2_dir_name": "alta_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2018-07-02",
+      "nib_acquisition_date": "2018-07-03",
+      "valid_fraction": 0.7183473110198975,
+      "hr_shift_hr_px": {
+        "dy": 2.07,
+        "dx": -0.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -2.07,
+        "dx": 0.01
+      },
+      "phase_init_hr_px": {
+        "dy": -0.07,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.850582122802734,
+        "ssim": 0.9026262164115906,
+        "ncc": 0.8563664086066721,
+        "mse": 0.0003619156705250846
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.93013381958008,
+        "ssim": 0.9155891537666321,
+        "ncc": 0.8876077007108958,
+        "mse": 0.000282261699214559
+      },
+      "delta": {
+        "psnr": 1.0795516967773438,
+        "ssim": 0.012962937355041504,
+        "ncc": 0.03124129210422366,
+        "mse": 7.965397131052561e-05
+      }
+    },
     "amli": {
       "df": 4,
       "s2_dir_name": "amli_lr512",
@@ -144,6 +236,328 @@
         "mse": 1.3796131124423224e-05
       }
     },
+    "flekkefjord": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.52,
+        "dx": 0.56
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.52,
+        "dx": -0.56
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.06
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.74867248535156,
+        "ssim": 0.9362449645996094,
+        "ncc": 0.677821323857349,
+        "mse": 0.00027036143210631855
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.795372009277344,
+        "ssim": 0.9367582201957703,
+        "ncc": 0.6804999102273964,
+        "mse": 0.0002674700544431025
+      },
+      "delta": {
+        "psnr": 0.04669952392578125,
+        "ssim": 0.0005132555961608887,
+        "ncc": 0.0026785863700474755,
+        "mse": 2.8913776632160586e-06
+      }
+    },
+    "karasjok": {
+      "df": 4,
+      "s2_dir_name": "karasjok_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-28",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.01,
+        "dx": -1.07
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.01,
+        "dx": 1.07
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.729888916015625,
+        "ssim": 0.8884143829345703,
+        "ncc": 0.6515455192240015,
+        "mse": 0.0004303519423476784
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.780677795410156,
+        "ssim": 0.8898022174835205,
+        "ncc": 0.656670869979114,
+        "mse": 0.0004253480613994778
+      },
+      "delta": {
+        "psnr": 0.05078887939453125,
+        "ssim": 0.0013878345489501953,
+        "ncc": 0.0051253507551124455,
+        "mse": 5.00388094820057e-06
+      }
+    },
+    "kautokeino": {
+      "df": 4,
+      "s2_dir_name": "kautokeino_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-30",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.9267847537994385,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.25
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.30762481689453,
+        "ssim": 0.9424431324005127,
+        "ncc": 0.83305369044902,
+        "mse": 0.00020056640334848444
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.35869216918945,
+        "ssim": 0.9428912997245789,
+        "ncc": 0.8347283954135951,
+        "mse": 0.00019822190200539515
+      },
+      "delta": {
+        "psnr": 0.051067352294921875,
+        "ssim": 0.0004481673240661621,
+        "ncc": 0.0016747049645751133,
+        "mse": 2.344501343089293e-06
+      }
+    },
+    "melhus": {
+      "df": 4,
+      "s2_dir_name": "melhus_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.31,
+        "dx": 1.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.31,
+        "dx": -1.01
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 29.22340202331543,
+        "ssim": 0.8614813685417175,
+        "ncc": 0.5559501901692113,
+        "mse": 0.0012147089038273974
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 29.254871368408203,
+        "ssim": 0.8629552721977234,
+        "ncc": 0.5613369402157886,
+        "mse": 0.0012059386716663384
+      },
+      "delta": {
+        "psnr": 0.03146934509277344,
+        "ssim": 0.0014739036560058594,
+        "ncc": 0.005386750046577293,
+        "mse": 8.770232161058999e-06
+      }
+    },
+    "naerbo": {
+      "df": 4,
+      "s2_dir_name": "naerbo_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.9718821048736572,
+      "hr_shift_hr_px": {
+        "dy": -0.5,
+        "dx": -0.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.5,
+        "dx": 0.25
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.84357452392578,
+        "ssim": 0.9679068922996521,
+        "ncc": 0.8604751721072283,
+        "mse": 0.00033730960345801863
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.85935592651367,
+        "ssim": 0.9679122567176819,
+        "ncc": 0.8609473882094415,
+        "mse": 0.0003360861113921599
+      },
+      "delta": {
+        "psnr": 0.015781402587890625,
+        "ssim": 5.364418029785156e-06,
+        "ncc": 0.00047221610221315213,
+        "mse": 1.22349206585872e-06
+      }
+    },
+    "nittedal": {
+      "df": 4,
+      "s2_dir_name": "nittedal_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.9844121932983398,
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 1.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.07,
+        "dx": -1.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.692487716674805,
+        "ssim": 0.8109996914863586,
+        "ncc": 0.680048999854385,
+        "mse": 0.0006879774244757647
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.14999008178711,
+        "ssim": 0.8235335946083069,
+        "ncc": 0.7119297951707881,
+        "mse": 0.0006191898067445569
+      },
+      "delta": {
+        "psnr": 0.4575023651123047,
+        "ssim": 0.012533903121948242,
+        "ncc": 0.03188079531640309,
+        "mse": 6.878761773120782e-05
+      }
+    },
+    "rafsbotn": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.62,
+        "dx": 0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.62,
+        "dx": -0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.12,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.726903915405273,
+        "ssim": 0.8979374766349792,
+        "ncc": 0.42642216759534474,
+        "mse": 0.0013618270662421274
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.738630294799805,
+        "ssim": 0.8984780311584473,
+        "ncc": 0.4271701224077366,
+        "mse": 0.0013581552301427302
+      },
+      "delta": {
+        "psnr": 0.01172637939453125,
+        "ssim": 0.0005405545234680176,
+        "ncc": 0.0007479548123918711,
+        "mse": 3.671836099397195e-06
+      }
+    },
     "rana": {
       "df": 4,
       "s2_dir_name": "rana_lr512",
@@ -188,6 +602,52 @@
         "ssim": 0.009004056453704834,
         "ncc": 0.019400562305161184,
         "mse": 4.85894377427402e-05
+      }
+    },
+    "stavanger": {
+      "df": 4,
+      "s2_dir_name": "stavanger_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-05-10",
+      "nib_acquisition_date": "2025-05-10",
+      "valid_fraction": 0.980900764465332,
+      "hr_shift_hr_px": {
+        "dy": -0.0,
+        "dx": -0.0
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.20795440673828,
+        "ssim": 0.910557746887207,
+        "ncc": 0.8521719342008038,
+        "mse": 0.00024410651547704523
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.20795440673828,
+        "ssim": 0.910557746887207,
+        "ncc": 0.8521719342008038,
+        "mse": 0.00024410651547704523
+      },
+      "delta": {
+        "psnr": 0.0,
+        "ssim": 0.0,
+        "ncc": 0.0,
+        "mse": 0.0
       }
     },
     "tromso": {
@@ -327,6 +787,4193 @@
         "ncc": 0.04513611189834732,
         "mse": 0.00010847587700913916
       }
+    }
+  },
+  "updated_utc": "2026-09-14T18:04:42.940713+00:00",
+  "tiles": {
+    "algard": {
+      "df": 4,
+      "s2_dir_name": "algard",
+      "lr_size": [
+        262,
+        262
+      ],
+      "hr_size": [
+        1048,
+        1048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.9696987355049239,
+      "hr_shift_hr_px": {
+        "dy": -0.75,
+        "dx": 0.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.75,
+        "dx": -0.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.15365982055664,
+        "ssim": 0.9453985691070557,
+        "ncc": 0.7362289633673172,
+        "mse": 0.0002500328665189126
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.19862747192383,
+        "ssim": 0.9459257125854492,
+        "ncc": 0.7388364349890323,
+        "mse": 0.0002474574666644908
+      },
+      "delta": {
+        "psnr": 0.0449676513671875,
+        "ssim": 0.0005271434783935547,
+        "ncc": 0.0026074716217150407,
+        "mse": 2.5753998544217577e-06
+      }
+    },
+    "algard_lr512": {
+      "df": 4,
+      "s2_dir_name": "algard_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.55
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.51,
+        "dx": -0.55
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.87300109863281,
+        "ssim": 0.9505383372306824,
+        "ncc": 0.6324513106512092,
+        "mse": 0.0003307594814025537
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.9972038269043,
+        "ssim": 0.9510164856910706,
+        "ncc": 0.6402130578884004,
+        "mse": 0.00032143430676622895
+      },
+      "delta": {
+        "psnr": 0.12420272827148438,
+        "ssim": 0.0004781484603881836,
+        "ncc": 0.007761747237191252,
+        "mse": 9.325174636324739e-06
+      }
+    },
+    "algard_p01_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p01_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.5,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.5,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.57877731323242,
+        "ssim": 0.9051086902618408,
+        "ncc": 0.6605262859936281,
+        "mse": 0.0005609636623464104
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.60728454589844,
+        "ssim": 0.9059429168701172,
+        "ncc": 0.6624916855620125,
+        "mse": 0.0005572932430934835
+      },
+      "delta": {
+        "psnr": 0.028507232666015625,
+        "ssim": 0.0008342266082763672,
+        "ncc": 0.001965399568384485,
+        "mse": 3.6704192529268603e-06
+      },
+      "tile_id": "algard_p01_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "b99d0c3231001222002446e60bbeae10ece4dfe08a537d1d01c6a8dd670e4c39"
+    },
+    "algard_p02_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p02_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.27,
+        "dx": 0.5700000000000001
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.27,
+        "dx": -0.5700000000000001
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.68062973022461,
+        "ssim": 0.9079375267028809,
+        "ncc": 0.6408007120205854,
+        "mse": 0.0005479606519737175
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.714176177978516,
+        "ssim": 0.9086217880249023,
+        "ncc": 0.6430850724183659,
+        "mse": 0.0005437445649974039
+      },
+      "delta": {
+        "psnr": 0.03354644775390625,
+        "ssim": 0.0006842613220214844,
+        "ncc": 0.0022843603977804605,
+        "mse": 4.216086976313658e-06
+      },
+      "tile_id": "algard_p02_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3e39390c21a09607400f94e864e6b68226b9ff63d2c65e717c5f56902a5b3a30"
+    },
+    "algard_p02_03": {
+      "df": 4,
+      "s2_dir_name": "algard_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.77,
+        "dx": 0.8
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.77,
+        "dx": -0.8
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.17674255371094,
+        "ssim": 0.9484961032867432,
+        "ncc": 0.6393329482376388,
+        "mse": 0.00030841681527859523
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.21083068847656,
+        "ssim": 0.9489942193031311,
+        "ncc": 0.6424817998933838,
+        "mse": 0.00030600568271054314
+      },
+      "delta": {
+        "psnr": 0.034088134765625,
+        "ssim": 0.0004981160163879395,
+        "ncc": 0.0031488516557450774,
+        "mse": 2.411132568052091e-06
+      },
+      "tile_id": "algard_p02_03",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "6cebc4ac3a70e6f338f478667dabbd228bc80332cba5be750f0e6432b5bbceb9"
+    },
+    "algard_p03_01": {
+      "df": 4,
+      "s2_dir_name": "algard_p03_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.25,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.25,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.51156997680664,
+        "ssim": 0.9365077018737793,
+        "ncc": 0.49829606899531714,
+        "mse": 0.000452538322437628
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.53264236450195,
+        "ssim": 0.9367653727531433,
+        "ncc": 0.49968798324729136,
+        "mse": 0.00045034785087341256
+      },
+      "delta": {
+        "psnr": 0.0210723876953125,
+        "ssim": 0.00025767087936401367,
+        "ncc": 0.0013919142519742134,
+        "mse": 2.1904715642154693e-06
+      },
+      "tile_id": "algard_p03_01",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "983623430fa13e8a3ac1c8a8ed6d4e3c107a963f143f0f39f446e5daf00189fa"
+    },
+    "algard_p03_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p03_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.27,
+        "dx": 0.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.27,
+        "dx": -0.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.71137237548828,
+        "ssim": 0.9306826591491699,
+        "ncc": 0.4443427691838734,
+        "mse": 0.0005440952179488991
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.72967529296875,
+        "ssim": 0.9310734868049622,
+        "ncc": 0.44549416427486654,
+        "mse": 0.0005418074742625664
+      },
+      "delta": {
+        "psnr": 0.01830291748046875,
+        "ssim": 0.00039082765579223633,
+        "ncc": 0.001151395090993157,
+        "mse": 2.2877436863326904e-06
+      },
+      "tile_id": "algard_p03_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "cde5a7bd95200769081fc273dd03bf497f36dd7dfa744cd852b8d79fa29d969e"
+    },
+    "algard_p03_03": {
+      "df": 4,
+      "s2_dir_name": "algard_p03_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.5,
+        "dx": 0.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.5,
+        "dx": -0.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.86703872680664,
+        "ssim": 0.9543346762657166,
+        "ncc": 0.6036577419967326,
+        "mse": 0.0003312138569660753
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.986061096191406,
+        "ssim": 0.9547123312950134,
+        "ncc": 0.611398255389166,
+        "mse": 0.00032225980933317966
+      },
+      "delta": {
+        "psnr": 0.11902236938476562,
+        "ssim": 0.000377655029296875,
+        "ncc": 0.0077405133924334235,
+        "mse": 8.954047632895657e-06
+      },
+      "tile_id": "algard_p03_03",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "1efd56e27f234a880efa54eb4c69684ec2c8722fd72bf54ef893bb927d0456b4"
+    },
+    "algard_p04_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p04_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.26,
+        "dx": 0.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.26,
+        "dx": -0.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.909454345703125,
+        "ssim": 0.9540950655937195,
+        "ncc": 0.5107771550225758,
+        "mse": 0.00032799472482858703
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.9272575378418,
+        "ssim": 0.9543592929840088,
+        "ncc": 0.5118062127905607,
+        "mse": 0.00032665306820971337
+      },
+      "delta": {
+        "psnr": 0.017803192138671875,
+        "ssim": 0.00026422739028930664,
+        "ncc": 0.0010290577679848978,
+        "mse": 1.3416566188736664e-06
+      },
+      "tile_id": "algard_p04_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "789a2337de312e704acf2c119deca50df3a0dbb29c881396f397029c6bf6c490"
+    },
+    "algard_p04_03": {
+      "df": 4,
+      "s2_dir_name": "algard_p04_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.26,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.26,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.507381439208984,
+        "ssim": 0.9512694478034973,
+        "ncc": 0.5880898200820253,
+        "mse": 0.0003598108401245036
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.64908218383789,
+        "ssim": 0.9516633152961731,
+        "ncc": 0.5962189497967391,
+        "mse": 0.00034826041988819597
+      },
+      "delta": {
+        "psnr": 0.14170074462890625,
+        "ssim": 0.00039386749267578125,
+        "ncc": 0.0081291297147138,
+        "mse": 1.1550420236307649e-05
+      },
+      "tile_id": "algard_p04_03",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "eae4a1928e7522473fc6d0b73e378f38eb97c3c0df7e17cd54af4b78f8821ef2"
+    },
+    "algard_p05_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p05_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.25,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.25,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.77231216430664,
+        "ssim": 0.9526253342628479,
+        "ncc": 0.4297270908086595,
+        "mse": 0.0004261683732399969
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.852970123291016,
+        "ssim": 0.9528681635856628,
+        "ncc": 0.4342714383553644,
+        "mse": 0.0004183262355795795
+      },
+      "delta": {
+        "psnr": 0.080657958984375,
+        "ssim": 0.0002428293228149414,
+        "ncc": 0.004544347546704908,
+        "mse": 7.842137660417391e-06
+      },
+      "tile_id": "algard_p05_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "a41364240dd0c2fc17b50b3e2acb98924123fa7a6d0028a1d60e3cbf971263c0"
+    },
+    "algard_p05_03": {
+      "df": 4,
+      "s2_dir_name": "algard_p05_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.51
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.51,
+        "dx": -0.51
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.56906509399414,
+        "ssim": 0.9708924293518066,
+        "ncc": 0.6822697871942484,
+        "mse": 0.00017778938279744755
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.59223175048828,
+        "ssim": 0.9710841178894043,
+        "ncc": 0.6835354799524431,
+        "mse": 0.0001768436289929867
+      },
+      "delta": {
+        "psnr": 0.023166656494140625,
+        "ssim": 0.00019168853759765625,
+        "ncc": 0.0012656927581947697,
+        "mse": 9.457538044608529e-07
+      },
+      "tile_id": "algard_p05_03",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "48007654878be0ca2802133094220013529d6b1dddf147c8dccab3d64cecc8a9"
+    },
+    "algard_p06_02": {
+      "df": 4,
+      "s2_dir_name": "algard_p06_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.25,
+        "dx": 0.51
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.25,
+        "dx": -0.51
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.68381118774414,
+        "ssim": 0.9353167414665222,
+        "ncc": 0.5717132570793878,
+        "mse": 0.00043494172440000986
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.70116424560547,
+        "ssim": 0.9356174468994141,
+        "ncc": 0.5725886929638347,
+        "mse": 0.00043320737127019196
+      },
+      "delta": {
+        "psnr": 0.017353057861328125,
+        "ssim": 0.0003007054328918457,
+        "ncc": 0.0008754358844469401,
+        "mse": 1.7343531298179022e-06
+      },
+      "tile_id": "algard_p06_02",
+      "parent_city": "algard",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "9bc93041e2af615af81b3f0e27143dc4cb8344c73f8855f7fd0112a5b52ebbca"
+    },
+    "alta": {
+      "df": 4,
+      "s2_dir_name": "alta",
+      "lr_size": [
+        259,
+        260
+      ],
+      "hr_size": [
+        1036,
+        1040
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2018-07-02",
+      "nib_acquisition_date": "2018-07-03",
+      "valid_fraction": 0.8523091773091773,
+      "hr_shift_hr_px": {
+        "dy": 2.06,
+        "dx": 0.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -2.06,
+        "dx": -0.01
+      },
+      "phase_init_hr_px": {
+        "dy": -0.06,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 38.57961654663086,
+        "ssim": 0.9484812617301941,
+        "ncc": 0.9105107420761975,
+        "mse": 0.00016272007958760236
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 39.913673400878906,
+        "ssim": 0.9559698104858398,
+        "ncc": 0.9341412388061131,
+        "mse": 0.00011968377356234519
+      },
+      "delta": {
+        "psnr": 1.3340568542480469,
+        "ssim": 0.007488548755645752,
+        "ncc": 0.023630496729915573,
+        "mse": 4.303630602525718e-05
+      }
+    },
+    "alta_lr512": {
+      "df": 4,
+      "s2_dir_name": "alta_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2018-07-02",
+      "nib_acquisition_date": "2018-07-03",
+      "valid_fraction": 0.7183473110198975,
+      "hr_shift_hr_px": {
+        "dy": 2.07,
+        "dx": -0.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -2.07,
+        "dx": 0.01
+      },
+      "phase_init_hr_px": {
+        "dy": -0.07,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.850582122802734,
+        "ssim": 0.9026262164115906,
+        "ncc": 0.8563664086066721,
+        "mse": 0.0003619156705250846
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.93013381958008,
+        "ssim": 0.9155891537666321,
+        "ncc": 0.8876077007108958,
+        "mse": 0.000282261699214559
+      },
+      "delta": {
+        "psnr": 1.0795516967773438,
+        "ssim": 0.012962937355041504,
+        "ncc": 0.03124129210422366,
+        "mse": 7.965397131052561e-05
+      }
+    },
+    "alta_p04_04": {
+      "df": 4,
+      "s2_dir_name": "alta_p04_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2018-07-02",
+      "nib_acquisition_date": "2018-07-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 2.9699999999999998,
+        "dx": -0.32
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -2.9699999999999998,
+        "dx": 0.32
+      },
+      "phase_init_hr_px": {
+        "dy": -2.4699999999999998,
+        "dx": 0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.1614990234375,
+        "ssim": 0.8736398816108704,
+        "ncc": 0.8018549417418206,
+        "mse": 0.0003896391823690337
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.362396240234375,
+        "ssim": 0.8928104043006897,
+        "ncc": 0.8485753393266585,
+        "mse": 0.00029551021090632183
+      },
+      "delta": {
+        "psnr": 1.200897216796875,
+        "ssim": 0.019170522689819336,
+        "ncc": 0.046720397584837925,
+        "mse": 9.412897146271189e-05
+      },
+      "tile_id": "alta_p04_04",
+      "parent_city": "alta",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3b855635d8f932508d178fb99127f4900afef3c23a0d606e07b6d12b56a6ebc0"
+    },
+    "amli_lr512": {
+      "df": 4,
+      "s2_dir_name": "amli_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-02",
+      "nib_acquisition_date": "2024-08-01",
+      "valid_fraction": 0.8869490623474121,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.51
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.51
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 26.760114669799805,
+        "ssim": 0.8705287575721741,
+        "ncc": 0.1719382918086872,
+        "mse": 0.0023773314420075077
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 26.765703201293945,
+        "ssim": 0.8710302710533142,
+        "ncc": 0.17284243093341106,
+        "mse": 0.0023742739056509315
+      },
+      "delta": {
+        "psnr": 0.005588531494140625,
+        "ssim": 0.0005015134811401367,
+        "ncc": 0.0009041391247238684,
+        "mse": 3.0575363565762265e-06
+      }
+    },
+    "asker_lr512": {
+      "df": 4,
+      "s2_dir_name": "asker_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": -0.3
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": 0.3
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": 0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.29447937011719,
+        "ssim": 0.8733635544776917,
+        "ncc": 0.7753067225824433,
+        "mse": 0.0004757342560979707
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.34455871582031,
+        "ssim": 0.8748454451560974,
+        "ncc": 0.7779756995357322,
+        "mse": 0.00047027987213643104
+      },
+      "delta": {
+        "psnr": 0.050079345703125,
+        "ssim": 0.0014818906784057617,
+        "ncc": 0.0026689769532889374,
+        "mse": 5.454383961539652e-06
+      }
+    },
+    "asker_p02_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p02_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": 0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": -0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.930816650390625,
+        "ssim": 0.9276759028434753,
+        "ncc": 0.7793769568256134,
+        "mse": 0.00020593518079048466
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.96745300292969,
+        "ssim": 0.9281730055809021,
+        "ncc": 0.7816510926957196,
+        "mse": 0.0002042054245778842
+      },
+      "delta": {
+        "psnr": 0.0366363525390625,
+        "ssim": 0.0004971027374267578,
+        "ncc": 0.0022741358701062753,
+        "mse": 1.72975621260047e-06
+      },
+      "tile_id": "asker_p02_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "8bca4ca6ccbcc99adbb18227ae058f7dd86423a1ac1c9cfbfe3c126ca31777b3"
+    },
+    "asker_p02_03": {
+      "df": 4,
+      "s2_dir_name": "asker_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": -0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": 0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": 0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.668418884277344,
+        "ssim": 0.8797357678413391,
+        "ncc": 0.816520808803408,
+        "mse": 0.0004364860824926298
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.70023727416992,
+        "ssim": 0.8804424405097961,
+        "ncc": 0.8180040197618269,
+        "mse": 0.0004332999864711987
+      },
+      "delta": {
+        "psnr": 0.031818389892578125,
+        "ssim": 0.0007066726684570312,
+        "ncc": 0.0014832109584188569,
+        "mse": 3.1860960214310607e-06
+      },
+      "tile_id": "asker_p02_03",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "708a02d86c93822fa3900596b0e3d900fa50b0ae907204ef3cad19970c815583"
+    },
+    "asker_p02_04": {
+      "df": 4,
+      "s2_dir_name": "asker_p02_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.56,
+        "dx": -0.31
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.56,
+        "dx": 0.31
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": 0.06
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.28543472290039,
+        "ssim": 0.8610888123512268,
+        "ncc": 0.8066258145549011,
+        "mse": 0.0004767259373936388
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.321529388427734,
+        "ssim": 0.8621305823326111,
+        "ncc": 0.8080992969324251,
+        "mse": 0.0004727802686998195
+      },
+      "delta": {
+        "psnr": 0.03609466552734375,
+        "ssim": 0.0010417699813842773,
+        "ncc": 0.0014734823775239825,
+        "mse": 3.945668693819274e-06
+      },
+      "tile_id": "asker_p02_04",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3fcd0b5ba9fa229a6b1031d8f37b1225640544ae791d4442f7e6a392d18b20b6"
+    },
+    "asker_p03_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p03_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": 0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": -0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 38.22438430786133,
+        "ssim": 0.9440032839775085,
+        "ncc": 0.7846986092799965,
+        "mse": 0.00015288816408484847
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 38.25640106201172,
+        "ssim": 0.9443700313568115,
+        "ncc": 0.7865531957295548,
+        "mse": 0.00015176517724871936
+      },
+      "delta": {
+        "psnr": 0.032016754150390625,
+        "ssim": 0.0003667473793029785,
+        "ncc": 0.001854586449558382,
+        "mse": 1.12298683612911e-06
+      },
+      "tile_id": "asker_p03_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "2c17cc4df7085a61741471c9374e0096a765ef132d9a6748c261702f4c61bc39"
+    },
+    "asker_p03_03": {
+      "df": 4,
+      "s2_dir_name": "asker_p03_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.81,
+        "dx": -0.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.81,
+        "dx": 0.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": 0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.31032943725586,
+        "ssim": 0.8642027974128723,
+        "ncc": 0.8031612420067832,
+        "mse": 0.00047400121989745673
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.36452102661133,
+        "ssim": 0.8658298850059509,
+        "ncc": 0.8057854777763355,
+        "mse": 0.0004681231605376553
+      },
+      "delta": {
+        "psnr": 0.05419158935546875,
+        "ssim": 0.0016270875930786133,
+        "ncc": 0.0026242357695522855,
+        "mse": 5.8780593598014306e-06
+      },
+      "tile_id": "asker_p03_03",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5ddbebc95092b80434e256d543e523865e9b305a28fd64011d39f1361e780ece"
+    },
+    "asker_p03_04": {
+      "df": 4,
+      "s2_dir_name": "asker_p03_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.58,
+        "dx": -0.3
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.58,
+        "dx": 0.3
+      },
+      "phase_init_hr_px": {
+        "dy": 0.08,
+        "dx": 0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.53135299682617,
+        "ssim": 0.8653561472892761,
+        "ncc": 0.8240387892748544,
+        "mse": 0.0005671226634812261
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.73863220214844,
+        "ssim": 0.8666360974311829,
+        "ncc": 0.8275336783231344,
+        "mse": 0.000540691187106976
+      },
+      "delta": {
+        "psnr": 0.20727920532226562,
+        "ssim": 0.0012799501419067383,
+        "ncc": 0.003494889048279992,
+        "mse": 2.6431476374250097e-05
+      },
+      "tile_id": "asker_p03_04",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "7d05d5f823279646bd9164c3898523577f41f9b097c60aecf26fdefe2dd7a1d5"
+    },
+    "asker_p04_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p04_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": -0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": 0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.99321365356445,
+        "ssim": 0.8848068118095398,
+        "ncc": 0.8170615742905339,
+        "mse": 0.00032172943628424347
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.05433654785156,
+        "ssim": 0.8860816955566406,
+        "ncc": 0.8198649440036883,
+        "mse": 0.00031723317824248977
+      },
+      "delta": {
+        "psnr": 0.061122894287109375,
+        "ssim": 0.00127488374710083,
+        "ncc": 0.0028033697131543134,
+        "mse": 4.496258041753701e-06
+      },
+      "tile_id": "asker_p04_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "bb86f7edc971fe0a2b0c8e77a656ac4b090d3d2658730930d3b9c0685d330b2e"
+    },
+    "asker_p04_03": {
+      "df": 4,
+      "s2_dir_name": "asker_p04_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.54,
+        "dx": -0.27
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.54,
+        "dx": 0.27
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": 0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.83726119995117,
+        "ssim": 0.9332347512245178,
+        "ncc": 0.8361219829665452,
+        "mse": 0.0003334927197893331
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.87155532836914,
+        "ssim": 0.9340159296989441,
+        "ncc": 0.8373960647857043,
+        "mse": 0.0003308697261940695
+      },
+      "delta": {
+        "psnr": 0.03429412841796875,
+        "ssim": 0.0007811784744262695,
+        "ncc": 0.001274081819159112,
+        "mse": 2.62299359526355e-06
+      },
+      "tile_id": "asker_p04_03",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3acbe58feaf9e4e8a6d2e8cd86edcfb987fd59068cfcc758d9fad509c0d698e9"
+    },
+    "asker_p05_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p05_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.79,
+        "dx": -0.54
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.79,
+        "dx": 0.54
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": 0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.00892639160156,
+        "ssim": 0.9147987961769104,
+        "ncc": 0.8118686576490126,
+        "mse": 0.00032056761727420805
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.062923431396484,
+        "ssim": 0.9157844185829163,
+        "ncc": 0.8143066846525266,
+        "mse": 0.00031660669561863006
+      },
+      "delta": {
+        "psnr": 0.053997039794921875,
+        "ssim": 0.0009856224060058594,
+        "ncc": 0.0024380270035140317,
+        "mse": 3.960921655577984e-06
+      },
+      "tile_id": "asker_p05_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "6de5a01d433d63fbdac67d4ab9d5114920210cf0eb5deb1a46c561a000b1099f"
+    },
+    "asker_p06_01": {
+      "df": 4,
+      "s2_dir_name": "asker_p06_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": -0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": 0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.29131317138672,
+        "ssim": 0.9128591418266296,
+        "ncc": 0.8783825708977635,
+        "mse": 0.0003781647589016773
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.33828353881836,
+        "ssim": 0.9137356281280518,
+        "ncc": 0.8796923012079975,
+        "mse": 0.00037409673100752603
+      },
+      "delta": {
+        "psnr": 0.046970367431640625,
+        "ssim": 0.0008764863014221191,
+        "ncc": 0.0013097303102339586,
+        "mse": 4.068027894151265e-06
+      },
+      "tile_id": "asker_p06_01",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "c52b31006f74fcdff7540cfafd2c9446b28518c003f027dd0d7e2890ca94bda7"
+    },
+    "asker_p06_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p06_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": -0.55
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": 0.55
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.23682403564453,
+        "ssim": 0.8915548324584961,
+        "ncc": 0.8572800406561826,
+        "mse": 0.0006069178106772022
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.27750778198242,
+        "ssim": 0.8928570747375488,
+        "ncc": 0.8587620481684836,
+        "mse": 0.0006012588545554429
+      },
+      "delta": {
+        "psnr": 0.040683746337890625,
+        "ssim": 0.0013022422790527344,
+        "ncc": 0.0014820075123009868,
+        "mse": 5.658956121759313e-06
+      },
+      "tile_id": "asker_p06_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "d8ada001d7c2462ba0a5a2c05248a4b7155810b7c5b3ba95f29a9bb3934fe2b3"
+    },
+    "asker_p07_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p07_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.53,
+        "dx": 0.73
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.53,
+        "dx": -0.73
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": 0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.148921966552734,
+        "ssim": 0.9316522479057312,
+        "ncc": 0.7416594880480911,
+        "mse": 0.000491949176875711
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.206546783447266,
+        "ssim": 0.9319000840187073,
+        "ncc": 0.7447733822880357,
+        "mse": 0.0004854645657224249
+      },
+      "delta": {
+        "psnr": 0.05762481689453125,
+        "ssim": 0.0002478361129760742,
+        "ncc": 0.00311389423994457,
+        "mse": 6.484611153286088e-06
+      },
+      "tile_id": "asker_p07_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "395a9c718c7c6ec593233e26ff0b457fda635dbedfd05de66325bd5eb6c591bd"
+    },
+    "asker_p08_02": {
+      "df": 4,
+      "s2_dir_name": "asker_p08_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.77,
+        "dx": 0.76
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.77,
+        "dx": -0.76
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 39.29434585571289,
+        "ssim": 0.9717881083488464,
+        "ncc": 0.7414864387881845,
+        "mse": 0.00011950273346986123
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 39.33830642700195,
+        "ssim": 0.9719539284706116,
+        "ncc": 0.7439485845883674,
+        "mse": 0.00011829911939779944
+      },
+      "delta": {
+        "psnr": 0.0439605712890625,
+        "ssim": 0.00016582012176513672,
+        "ncc": 0.002462145800182891,
+        "mse": 1.2036140720617902e-06
+      },
+      "tile_id": "asker_p08_02",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "c103c58b9c7f9e7ff37ae722b5330bfe7b032c62e35d5515367cee52d2d4ab33"
+    },
+    "asker_p08_03": {
+      "df": 4,
+      "s2_dir_name": "asker_p08_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-05-14",
+      "nib_acquisition_date": "2024-05-15",
+      "valid_fraction": 0.98435378074646,
+      "hr_shift_hr_px": {
+        "dy": -1.28,
+        "dx": 1.51
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.28,
+        "dx": -1.51
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.64422607421875,
+        "ssim": 0.933853805065155,
+        "ncc": 0.7190448371816139,
+        "mse": 0.0002769655447222377
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.85527420043945,
+        "ssim": 0.93595290184021,
+        "ncc": 0.734192348703784,
+        "mse": 0.00026382827221648706
+      },
+      "delta": {
+        "psnr": 0.21104812622070312,
+        "ssim": 0.0020990967750549316,
+        "ncc": 0.015147511522170087,
+        "mse": 1.3137272505750637e-05
+      },
+      "tile_id": "asker_p08_03",
+      "parent_city": "asker",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "2982a43c8d805c1dc87fd9097c4ccc0c38f559e47cd62d124a21891eb97f17cf"
+    },
+    "bergen_lr512": {
+      "df": 4,
+      "s2_dir_name": "bergen_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.79,
+        "dx": 1.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.79,
+        "dx": -1.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.744293212890625,
+        "ssim": 0.853814423084259,
+        "ncc": 0.699115795262573,
+        "mse": 0.0005399864446488331
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.85669708251953,
+        "ssim": 0.8562818169593811,
+        "ncc": 0.708567831250311,
+        "mse": 0.0005261903135244098
+      },
+      "delta": {
+        "psnr": 0.11240386962890625,
+        "ssim": 0.0024673938751220703,
+        "ncc": 0.009452035987738028,
+        "mse": 1.3796131124423224e-05
+      }
+    },
+    "bergen_p02_04": {
+      "df": 4,
+      "s2_dir_name": "bergen_p02_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": 0.83
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": -0.83
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.08
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.07133102416992,
+        "ssim": 0.8859140276908875,
+        "ncc": 0.7673190331782328,
+        "mse": 0.00039781344942019996
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.18205642700195,
+        "ssim": 0.8883814811706543,
+        "ncc": 0.7740541348146311,
+        "mse": 0.0003877989965577937
+      },
+      "delta": {
+        "psnr": 0.11072540283203125,
+        "ssim": 0.0024674534797668457,
+        "ncc": 0.006735101636398344,
+        "mse": 1.0014452862406242e-05
+      },
+      "tile_id": "bergen_p02_04",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "c74c1d1aafe8047689e8a0f0863c30ee6c69f40d8549745a17d2c582b7b325cb"
+    },
+    "bergen_p03_04": {
+      "df": 4,
+      "s2_dir_name": "bergen_p03_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.9830427169799805,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.76
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.76
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.58604049682617,
+        "ssim": 0.9240208268165588,
+        "ncc": 0.7736924693036569,
+        "mse": 0.00028107572526078306
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.66143798828125,
+        "ssim": 0.9249504208564758,
+        "ncc": 0.7780062665160661,
+        "mse": 0.0002762381309442949
+      },
+      "delta": {
+        "psnr": 0.07539749145507812,
+        "ssim": 0.0009295940399169922,
+        "ncc": 0.0043137972124092094,
+        "mse": 4.837594316488161e-06
+      },
+      "tile_id": "bergen_p03_04",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "0e635fdbc2f76494bcd0968186d6e7cbb6084f0c08e2366bd0a7ae7ea19527d4"
+    },
+    "bergen_p03_05": {
+      "df": 4,
+      "s2_dir_name": "bergen_p03_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.53,
+        "dx": -0.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.53,
+        "dx": 0.01
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 38.02506637573242,
+        "ssim": 0.9499257206916809,
+        "ncc": 0.7620266351589615,
+        "mse": 0.00016006850487933978
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 38.05540084838867,
+        "ssim": 0.9502180218696594,
+        "ncc": 0.7634830275980975,
+        "mse": 0.00015895432698533746
+      },
+      "delta": {
+        "psnr": 0.03033447265625,
+        "ssim": 0.0002923011779785156,
+        "ncc": 0.0014563924391359784,
+        "mse": 1.1141778940023208e-06
+      },
+      "tile_id": "bergen_p03_05",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "7f362f17a0f497af9e0cae50e0bfedee88a2fa982120d6775223bfffcf552778"
+    },
+    "bergen_p04_04": {
+      "df": 4,
+      "s2_dir_name": "bergen_p04_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.78
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.51,
+        "dx": -0.78
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.092649459838867,
+        "ssim": 0.8416123390197754,
+        "ncc": 0.6815344007105366,
+        "mse": 0.0007898551728381412
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.19222640991211,
+        "ssim": 0.8437233567237854,
+        "ncc": 0.6875826958443656,
+        "mse": 0.0007719512480903309
+      },
+      "delta": {
+        "psnr": 0.09957695007324219,
+        "ssim": 0.0021110177040100098,
+        "ncc": 0.006048295133828985,
+        "mse": 1.7903924747810222e-05
+      },
+      "tile_id": "bergen_p04_04",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "a443ec104e2fcedf4bb1295973539706fdcba04848e9c070bf522157e5c99e2d"
+    },
+    "bergen_p04_05": {
+      "df": 4,
+      "s2_dir_name": "bergen_p04_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.53,
+        "dx": -0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.53,
+        "dx": 0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": 0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.98725509643555,
+        "ssim": 0.9443045258522034,
+        "ncc": 0.729746068976976,
+        "mse": 0.0002032763500608826
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.02116775512695,
+        "ssim": 0.944608747959137,
+        "ncc": 0.7313004630338996,
+        "mse": 0.00020169533714914907
+      },
+      "delta": {
+        "psnr": 0.03391265869140625,
+        "ssim": 0.00030422210693359375,
+        "ncc": 0.0015543940569235914,
+        "mse": 1.581012911733542e-06
+      },
+      "tile_id": "bergen_p04_05",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "f4dfc3acb4886690f36c1e603e1214a60edbcc62cc894482ba26b421eb26bd7c"
+    },
+    "bergen_p05_03": {
+      "df": 4,
+      "s2_dir_name": "bergen_p05_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.52,
+        "dx": 0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.52,
+        "dx": -0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.2244987487793,
+        "ssim": 0.9079484939575195,
+        "ncc": 0.8050077778992364,
+        "mse": 0.00030504412864918845
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.2789421081543,
+        "ssim": 0.9087465405464172,
+        "ncc": 0.8070192480726615,
+        "mse": 0.0003012440200343351
+      },
+      "delta": {
+        "psnr": 0.054443359375,
+        "ssim": 0.0007980465888977051,
+        "ncc": 0.0020114701734250673,
+        "mse": 3.800108614853369e-06
+      },
+      "tile_id": "bergen_p05_03",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "6cda7624dcbe369f4f4ed0a6a550c7c14c596b69dd81dd7634c9491cc7a1981c"
+    },
+    "bergen_p05_04": {
+      "df": 4,
+      "s2_dir_name": "bergen_p05_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.54,
+        "dx": 0.81
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.54,
+        "dx": -0.81
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.06
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.868812561035156,
+        "ssim": 0.8911020755767822,
+        "ncc": 0.694242222583005,
+        "mse": 0.0004168030924334895
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.99264907836914,
+        "ssim": 0.8927411437034607,
+        "ncc": 0.7030655753491224,
+        "mse": 0.0004050861895922274
+      },
+      "delta": {
+        "psnr": 0.12383651733398438,
+        "ssim": 0.0016390681266784668,
+        "ncc": 0.008823352766117343,
+        "mse": 1.1716902841262086e-05
+      },
+      "tile_id": "bergen_p05_04",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "c16556fbb8474f43593c2b1eba40283d3717d2477a8740fda4fd859c8fed5fae"
+    },
+    "bergen_p05_05": {
+      "df": 4,
+      "s2_dir_name": "bergen_p05_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-03",
+      "nib_acquisition_date": "2022-09-03",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": -0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": 0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": 0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.00764083862305,
+        "ssim": 0.9430729746818542,
+        "ncc": 0.4659911717816178,
+        "mse": 0.0005082159068043363
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.02423858642578,
+        "ssim": 0.9433971047401428,
+        "ncc": 0.4677333135019087,
+        "mse": 0.0005062774158057224
+      },
+      "delta": {
+        "psnr": 0.016597747802734375,
+        "ssim": 0.0003241300582885742,
+        "ncc": 0.0017421417202909129,
+        "mse": 1.9384909986138853e-06
+      },
+      "tile_id": "bergen_p05_05",
+      "parent_city": "bergen",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5e726998b7f96d98006f1a1f2aa793522e13d0fa0c09eee6fd37035720eb73ac"
+    },
+    "flekkefjord": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord",
+      "lr_size": [
+        259,
+        259
+      ],
+      "hr_size": [
+        1036,
+        1036
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.9693504867250041,
+      "hr_shift_hr_px": {
+        "dy": -1.01,
+        "dx": 0.26
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.01,
+        "dx": -0.26
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.2370719909668,
+        "ssim": 0.9455322027206421,
+        "ncc": 0.6415147600975366,
+        "mse": 0.00019490009100397402
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.28483581542969,
+        "ssim": 0.9459363222122192,
+        "ncc": 0.645889952989199,
+        "mse": 0.00019276826041258262
+      },
+      "delta": {
+        "psnr": 0.047763824462890625,
+        "ssim": 0.00040411949157714844,
+        "ncc": 0.004375192891662438,
+        "mse": 2.131830591391398e-06
+      }
+    },
+    "flekkefjord_lr512": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.52,
+        "dx": 0.56
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.52,
+        "dx": -0.56
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.06
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.74867248535156,
+        "ssim": 0.9362449645996094,
+        "ncc": 0.677821323857349,
+        "mse": 0.00027036143210631855
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.795372009277344,
+        "ssim": 0.9367582201957703,
+        "ncc": 0.6804999102273964,
+        "mse": 0.0002674700544431025
+      },
+      "delta": {
+        "psnr": 0.04669952392578125,
+        "ssim": 0.0005132555961608887,
+        "ncc": 0.0026785863700474755,
+        "mse": 2.8913776632160586e-06
+      }
+    },
+    "flekkefjord_p02_03": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.52,
+        "dx": 0.27
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.52,
+        "dx": -0.27
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 40.35345458984375,
+        "ssim": 0.9736464619636536,
+        "ncc": 0.7779712216488864,
+        "mse": 9.364112234719347e-05
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 40.45510482788086,
+        "ssim": 0.9739632606506348,
+        "ncc": 0.7833518481999764,
+        "mse": 9.147490077450396e-05
+      },
+      "delta": {
+        "psnr": 0.10165023803710938,
+        "ssim": 0.00031679868698120117,
+        "ncc": 0.005380626551089951,
+        "mse": 2.16622157268951e-06
+      },
+      "tile_id": "flekkefjord_p02_03",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "efe9efe15e60affddee261e023cc6d0ee4cb61aa340e36a515047bc8b340077e"
+    },
+    "flekkefjord_p02_04": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p02_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -2.05,
+        "dx": 0.32
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 2.05,
+        "dx": -0.32
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 23.554040908813477,
+        "ssim": 0.8600878119468689,
+        "ncc": 0.05904585577088999,
+        "mse": 0.004481343755427979
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 23.75113296508789,
+        "ssim": 0.8612864017486572,
+        "ncc": 0.06541464134542771,
+        "mse": 0.004282517545092146
+      },
+      "delta": {
+        "psnr": 0.19709205627441406,
+        "ssim": 0.00119858980178833,
+        "ncc": 0.006368785574537718,
+        "mse": 0.000198826210335833
+      },
+      "tile_id": "flekkefjord_p02_04",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "0bb7e4d61f251e4e85e6417777a44529fc813c0cbf64707ac4cf962d9dfcdd03"
+    },
+    "flekkefjord_p03_03": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p03_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.3
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.3
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.0825080871582,
+        "ssim": 0.9524734020233154,
+        "ncc": 0.6279511696740044,
+        "mse": 0.00019886640734308815
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.12370300292969,
+        "ssim": 0.9528101086616516,
+        "ncc": 0.6312340848258317,
+        "mse": 0.00019698897985401882
+      },
+      "delta": {
+        "psnr": 0.041194915771484375,
+        "ssim": 0.00033670663833618164,
+        "ncc": 0.003282915151827215,
+        "mse": 1.8774274890693264e-06
+      },
+      "tile_id": "flekkefjord_p03_03",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "029bea52ee08436bf27a94da91fcae27c7f929e6519e5efb001dd1d1cc7a170e"
+    },
+    "flekkefjord_p03_04": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p03_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.83,
+        "dx": 0.36
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.83,
+        "dx": -0.36
+      },
+      "phase_init_hr_px": {
+        "dy": 0.08,
+        "dx": -0.11
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 30.024967193603516,
+        "ssim": 0.9354901313781738,
+        "ncc": 0.25361021964913255,
+        "mse": 0.0010099869005795051
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 30.02924346923828,
+        "ssim": 0.9360391497612,
+        "ncc": 0.2559010191257087,
+        "mse": 0.0010089923462500313
+      },
+      "delta": {
+        "psnr": 0.004276275634765625,
+        "ssim": 0.000549018383026123,
+        "ncc": 0.002290799476576122,
+        "mse": 9.945543294738544e-07
+      },
+      "tile_id": "flekkefjord_p03_04",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "167ef2727a65e8e54564d5f767088ea0cd99252dd4a4e79e1c925d6d487f300a"
+    },
+    "flekkefjord_p04_01": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p04_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 0.03,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -0.03,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": -0.03,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.976802825927734,
+        "ssim": 0.9135289192199707,
+        "ncc": 0.7920945174212775,
+        "mse": 0.0004065668694340585
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.991233825683594,
+        "ssim": 0.9137699604034424,
+        "ncc": 0.7926235985702018,
+        "mse": 0.0004052183050844126
+      },
+      "delta": {
+        "psnr": 0.014430999755859375,
+        "ssim": 0.0002410411834716797,
+        "ncc": 0.0005290811489243596,
+        "mse": 1.3485643496459281e-06
+      },
+      "tile_id": "flekkefjord_p04_01",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3eaa680daaf666a1b4335f75b6f2bd60b9d52643a7002b90ae8712f4deb0dbb3"
+    },
+    "flekkefjord_p04_02": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p04_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 0.03,
+        "dx": 0.59
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -0.03,
+        "dx": -0.59
+      },
+      "phase_init_hr_px": {
+        "dy": -0.03,
+        "dx": -0.09
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 23.551156997680664,
+        "ssim": 0.7812879681587219,
+        "ncc": 0.17809960016495374,
+        "mse": 0.004484321181087517
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 23.552783966064453,
+        "ssim": 0.781378448009491,
+        "ncc": 0.17818666230920496,
+        "mse": 0.004482641846622854
+      },
+      "delta": {
+        "psnr": 0.0016269683837890625,
+        "ssim": 9.047985076904297e-05,
+        "ncc": 8.706214425122094e-05,
+        "mse": 1.6793344646626532e-06
+      },
+      "tile_id": "flekkefjord_p04_02",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "0d3e2764e1aab9c68eba629b6df883bda3ae9e4acd0c3c5568699ffac91b7b68"
+    },
+    "flekkefjord_p04_03": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p04_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.78,
+        "dx": 0.55
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.78,
+        "dx": -0.55
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.90044021606445,
+        "ssim": 0.9474717974662781,
+        "ncc": 0.7246556510525046,
+        "mse": 0.00020738049824194638
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.950225830078125,
+        "ssim": 0.9480562210083008,
+        "ncc": 0.7277929404694303,
+        "mse": 0.00020501692488911303
+      },
+      "delta": {
+        "psnr": 0.049785614013671875,
+        "ssim": 0.0005844235420227051,
+        "ncc": 0.0031372894169257037,
+        "mse": 2.3635733528333547e-06
+      },
+      "tile_id": "flekkefjord_p04_03",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "dd6f6678f60c1b66969865428a1a390b1a648d4c8ce5cdb07557b6e40c6d809a"
+    },
+    "flekkefjord_p05_02": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p05_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.0,
+        "dx": 0.84
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.0,
+        "dx": -0.84
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": -0.09
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.898591995239258,
+        "ssim": 0.899627685546875,
+        "ncc": 0.36117000307225083,
+        "mse": 0.0013090406091385023
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.904714584350586,
+        "ssim": 0.8997542858123779,
+        "ncc": 0.36185025972741325,
+        "mse": 0.0013071965821788323
+      },
+      "delta": {
+        "psnr": 0.006122589111328125,
+        "ssim": 0.0001266002655029297,
+        "ncc": 0.0006802566551624145,
+        "mse": 1.8440269596699341e-06
+      },
+      "tile_id": "flekkefjord_p05_02",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "44ba35bf09168adbb930e6c7d55f507e0e9327db48ddbce9b8f19cfef97e6a19"
+    },
+    "flekkefjord_p05_03": {
+      "df": 4,
+      "s2_dir_name": "flekkefjord_p05_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.51,
+        "dx": 0.79
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.51,
+        "dx": -0.79
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 40.63011932373047,
+        "ssim": 0.9727910161018372,
+        "ncc": 0.8480098471079665,
+        "mse": 8.78618249329315e-05
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 40.70568084716797,
+        "ssim": 0.97303706407547,
+        "ncc": 0.8505578054529596,
+        "mse": 8.634645479427047e-05
+      },
+      "delta": {
+        "psnr": 0.0755615234375,
+        "ssim": 0.0002460479736328125,
+        "ncc": 0.0025479583449931065,
+        "mse": 1.5153701386610286e-06
+      },
+      "tile_id": "flekkefjord_p05_03",
+      "parent_city": "flekkefjord",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "9496fe6c2dbfe5381c5eacf615a6e4288da2a926a9de0b23079e0dcc03687285"
+    },
+    "karasjok": {
+      "df": 4,
+      "s2_dir_name": "karasjok",
+      "lr_size": [
+        257,
+        257
+      ],
+      "hr_size": [
+        1028,
+        1028
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-28",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.9691138397250526,
+      "hr_shift_hr_px": {
+        "dy": 0.02,
+        "dx": -1.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -0.02,
+        "dx": 1.04
+      },
+      "phase_init_hr_px": {
+        "dy": -0.02,
+        "dx": 0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.567264556884766,
+        "ssim": 0.9029956459999084,
+        "ncc": 0.810263876999596,
+        "mse": 0.0002863509471855106
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.68632888793945,
+        "ssim": 0.9049257040023804,
+        "ncc": 0.8163696844117706,
+        "mse": 0.000278607165253398
+      },
+      "delta": {
+        "psnr": 0.1190643310546875,
+        "ssim": 0.0019300580024719238,
+        "ncc": 0.006105807412174591,
+        "mse": 7.743781932112589e-06
+      }
+    },
+    "karasjok_lr512": {
+      "df": 4,
+      "s2_dir_name": "karasjok_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-28",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.01,
+        "dx": -1.07
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.01,
+        "dx": 1.07
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.729888916015625,
+        "ssim": 0.8884143829345703,
+        "ncc": 0.6515455192240015,
+        "mse": 0.0004303519423476784
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.780677795410156,
+        "ssim": 0.8898022174835205,
+        "ncc": 0.656670869979114,
+        "mse": 0.0004253480613994778
+      },
+      "delta": {
+        "psnr": 0.05078887939453125,
+        "ssim": 0.0013878345489501953,
+        "ncc": 0.0051253507551124455,
+        "mse": 5.00388094820057e-06
+      }
+    },
+    "kautokeino": {
+      "df": 4,
+      "s2_dir_name": "kautokeino",
+      "lr_size": [
+        259,
+        259
+      ],
+      "hr_size": [
+        1036,
+        1036
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-30",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.9693504867250041,
+      "hr_shift_hr_px": {
+        "dy": -0.77,
+        "dx": 0.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.77,
+        "dx": -0.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.74846649169922,
+        "ssim": 0.8981380462646484,
+        "ncc": 0.8537268357567913,
+        "mse": 0.00027458204834466914
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.82130432128906,
+        "ssim": 0.8989143967628479,
+        "ncc": 0.8559837945618929,
+        "mse": 0.0002700155260931508
+      },
+      "delta": {
+        "psnr": 0.07283782958984375,
+        "ssim": 0.0007763504981994629,
+        "ncc": 0.002256958805101572,
+        "mse": 4.566522251518354e-06
+      }
+    },
+    "kautokeino_lr512": {
+      "df": 4,
+      "s2_dir_name": "kautokeino_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2023-06-30",
+      "nib_acquisition_date": "2023-06-30",
+      "valid_fraction": 0.9267847537994385,
+      "hr_shift_hr_px": {
+        "dy": -0.76,
+        "dx": 0.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.76,
+        "dx": -0.25
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.30762481689453,
+        "ssim": 0.9424431324005127,
+        "ncc": 0.83305369044902,
+        "mse": 0.00020056640334848444
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.35869216918945,
+        "ssim": 0.9428912997245789,
+        "ncc": 0.8347283954135951,
+        "mse": 0.00019822190200539515
+      },
+      "delta": {
+        "psnr": 0.051067352294921875,
+        "ssim": 0.0004481673240661621,
+        "ncc": 0.0016747049645751133,
+        "mse": 2.344501343089293e-06
+      }
+    },
+    "melhus": {
+      "df": 4,
+      "s2_dir_name": "melhus",
+      "lr_size": [
+        255,
+        256
+      ],
+      "hr_size": [
+        1020,
+        1024
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.9689338235294118,
+      "hr_shift_hr_px": {
+        "dy": -0.78,
+        "dx": 0.76
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.78,
+        "dx": -0.76
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.82868194580078,
+        "ssim": 0.8589630722999573,
+        "ncc": 0.591602345722431,
+        "mse": 0.0013515671239413228
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.85943031311035,
+        "ssim": 0.8606982827186584,
+        "ncc": 0.5957641286587678,
+        "mse": 0.0013420317282394313
+      },
+      "delta": {
+        "psnr": 0.030748367309570312,
+        "ssim": 0.0017352104187011719,
+        "ncc": 0.004161782936336844,
+        "mse": 9.535395701891578e-06
+      }
+    },
+    "melhus_lr512": {
+      "df": 4,
+      "s2_dir_name": "melhus_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.31,
+        "dx": 1.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.31,
+        "dx": -1.01
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 29.22340202331543,
+        "ssim": 0.8614813685417175,
+        "ncc": 0.5559501901692113,
+        "mse": 0.0012147089038273974
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 29.254871368408203,
+        "ssim": 0.8629552721977234,
+        "ncc": 0.5613369402157886,
+        "mse": 0.0012059386716663384
+      },
+      "delta": {
+        "psnr": 0.03146934509277344,
+        "ssim": 0.0014739036560058594,
+        "ncc": 0.005386750046577293,
+        "mse": 8.770232161058999e-06
+      }
+    },
+    "melhus_p01_01": {
+      "df": 4,
+      "s2_dir_name": "melhus_p01_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.76,
+        "dx": 1.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.76,
+        "dx": -1.25
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.1218318939209,
+        "ssim": 0.849069356918335,
+        "ncc": 0.47413361472722476,
+        "mse": 0.0015654143225023235
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.163410186767578,
+        "ssim": 0.8510563969612122,
+        "ncc": 0.4817497885190636,
+        "mse": 0.0015504987404120986
+      },
+      "delta": {
+        "psnr": 0.04157829284667969,
+        "ssim": 0.0019870400428771973,
+        "ncc": 0.007616173791838821,
+        "mse": 1.4915582090224873e-05
+      },
+      "tile_id": "melhus_p01_01",
+      "parent_city": "melhus",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3dca7045fbfeb12fad54ba0574943515d01c73187d3b696461ccec7100616658"
+    },
+    "melhus_p02_01": {
+      "df": 4,
+      "s2_dir_name": "melhus_p02_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.31,
+        "dx": 1.03
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.31,
+        "dx": -1.03
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.46733283996582,
+        "ssim": 0.8446219563484192,
+        "ncc": 0.4931650507836973,
+        "mse": 0.0014457034720273976
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.49032974243164,
+        "ssim": 0.8459985852241516,
+        "ncc": 0.4974535142181056,
+        "mse": 0.001438068090190355
+      },
+      "delta": {
+        "psnr": 0.022996902465820312,
+        "ssim": 0.0013766288757324219,
+        "ncc": 0.004288463434408252,
+        "mse": 7.635381837042647e-06
+      },
+      "tile_id": "melhus_p02_01",
+      "parent_city": "melhus",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "25721bb3e1a9f6c33d1fe53e3f6fb5b999c5346201e7f40e4f667efd0e3cdc03"
+    },
+    "melhus_p03_01": {
+      "df": 4,
+      "s2_dir_name": "melhus_p03_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.54,
+        "dx": 0.8
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.54,
+        "dx": -0.8
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.463279724121094,
+        "ssim": 0.84468674659729,
+        "ncc": 0.5617957569960941,
+        "mse": 0.0014470532094571257
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.505216598510742,
+        "ssim": 0.846596896648407,
+        "ncc": 0.56836570353115,
+        "mse": 0.0014331465664219165
+      },
+      "delta": {
+        "psnr": 0.04193687438964844,
+        "ssim": 0.0019101500511169434,
+        "ncc": 0.006569946535055937,
+        "mse": 1.3906643035209226e-05
+      },
+      "tile_id": "melhus_p03_01",
+      "parent_city": "melhus",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "a532810dcdcaefe2a057e863f1af43f46ce0368d8885f79d679ba99185db30fe"
+    },
+    "melhus_p04_01": {
+      "df": 4,
+      "s2_dir_name": "melhus_p04_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2022-09-07",
+      "nib_acquisition_date": "2022-09-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.8,
+        "dx": 1.27
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.8,
+        "dx": -1.27
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 29.777374267578125,
+        "ssim": 0.8619384765625,
+        "ncc": 0.5565632679632799,
+        "mse": 0.0010692394505006147
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 29.827680587768555,
+        "ssim": 0.8637222647666931,
+        "ncc": 0.5643213371984611,
+        "mse": 0.0010569252883136737
+      },
+      "delta": {
+        "psnr": 0.05030632019042969,
+        "ssim": 0.0017837882041931152,
+        "ncc": 0.007758069235181186,
+        "mse": 1.2314162186940992e-05
+      },
+      "tile_id": "melhus_p04_01",
+      "parent_city": "melhus",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "b7e429b8ed877c3fe36a183ee853ffd2228bdceb2feaebce34452d7cbe153ecc"
+    },
+    "naerbo": {
+      "df": 4,
+      "s2_dir_name": "naerbo",
+      "lr_size": [
+        263,
+        263
+      ],
+      "hr_size": [
+        1052,
+        1052
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.9698130665471526,
+      "hr_shift_hr_px": {
+        "dy": -0.25,
+        "dx": 0.5
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.25,
+        "dx": -0.5
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.20406723022461,
+        "ssim": 0.938754677772522,
+        "ncc": 0.8117444563174121,
+        "mse": 0.0006207329946940304
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.217384338378906,
+        "ssim": 0.939035177230835,
+        "ncc": 0.8122826373056522,
+        "mse": 0.0006188329143062716
+      },
+      "delta": {
+        "psnr": 0.013317108154296875,
+        "ssim": 0.0002804994583129883,
+        "ncc": 0.0005381809882401001,
+        "mse": 1.900080387758833e-06
+      }
+    },
+    "naerbo_lr512": {
+      "df": 4,
+      "s2_dir_name": "naerbo_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.9718821048736572,
+      "hr_shift_hr_px": {
+        "dy": -0.5,
+        "dx": -0.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.5,
+        "dx": 0.25
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.84357452392578,
+        "ssim": 0.9679068922996521,
+        "ncc": 0.8604751721072283,
+        "mse": 0.00033730960345801863
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.85935592651367,
+        "ssim": 0.9679122567176819,
+        "ncc": 0.8609473882094415,
+        "mse": 0.0003360861113921599
+      },
+      "delta": {
+        "psnr": 0.015781402587890625,
+        "ssim": 5.364418029785156e-06,
+        "ncc": 0.00047221610221315213,
+        "mse": 1.22349206585872e-06
+      }
+    },
+    "naerbo_p01_01": {
+      "df": 4,
+      "s2_dir_name": "naerbo_p01_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.52,
+        "dx": 0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.52,
+        "dx": -0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.800813674926758,
+        "ssim": 0.9377744197845459,
+        "ncc": 0.6649743144419314,
+        "mse": 0.000671013034997727
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.85968017578125,
+        "ssim": 0.9381645321846008,
+        "ncc": 0.668115481362344,
+        "mse": 0.0006619791635958199
+      },
+      "delta": {
+        "psnr": 0.05886650085449219,
+        "ssim": 0.00039011240005493164,
+        "ncc": 0.0031411669204125525,
+        "mse": 9.0338714019071e-06
+      },
+      "tile_id": "naerbo_p01_01",
+      "parent_city": "naerbo",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "d525ffd1da054fff13db6b9eedf719bdcfc384e259372d40b1b7e7e35737e05a"
+    },
+    "naerbo_p02_01": {
+      "df": 4,
+      "s2_dir_name": "naerbo_p02_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-09-24",
+      "nib_acquisition_date": "2025-09-25",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.28,
+        "dx": 0.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.28,
+        "dx": -0.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.901058197021484,
+        "ssim": 0.9389554858207703,
+        "ncc": 0.6182512758732169,
+        "mse": 0.0005208425726744879
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.0704345703125,
+        "ssim": 0.9393012523651123,
+        "ncc": 0.6276900927759339,
+        "mse": 0.0005009206396679552
+      },
+      "delta": {
+        "psnr": 0.16937637329101562,
+        "ssim": 0.000345766544342041,
+        "ncc": 0.009438816902716973,
+        "mse": 1.992193300653271e-05
+      },
+      "tile_id": "naerbo_p02_01",
+      "parent_city": "naerbo",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "e6005bd84b83f7deab4d91284a17dd8d33027a07ee5b697e3e8d163e8cb63bc8"
+    },
+    "nittedal": {
+      "df": 4,
+      "s2_dir_name": "nittedal",
+      "lr_size": [
+        256,
+        257
+      ],
+      "hr_size": [
+        1024,
+        1028
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.9689589919747081,
+      "hr_shift_hr_px": {
+        "dy": -1.05,
+        "dx": 1.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.05,
+        "dx": -1.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.670366287231445,
+        "ssim": 0.8255866765975952,
+        "ncc": 0.5999629668860023,
+        "mse": 0.0007025186490409153
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.313629150390625,
+        "ssim": 0.8367248773574829,
+        "ncc": 0.6479035968411949,
+        "mse": 0.0006058028621619751
+      },
+      "delta": {
+        "psnr": 0.6432628631591797,
+        "ssim": 0.011138200759887695,
+        "ncc": 0.04794062995519266,
+        "mse": 9.671578687894019e-05
+      }
+    },
+    "nittedal_lr512": {
+      "df": 4,
+      "s2_dir_name": "nittedal_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.9844121932983398,
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 1.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.07,
+        "dx": -1.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.692487716674805,
+        "ssim": 0.8109996914863586,
+        "ncc": 0.680048999854385,
+        "mse": 0.0006879774244757647
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.14999008178711,
+        "ssim": 0.8235335946083069,
+        "ncc": 0.7119297951707881,
+        "mse": 0.0006191898067445569
+      },
+      "delta": {
+        "psnr": 0.4575023651123047,
+        "ssim": 0.012533903121948242,
+        "ncc": 0.03188079531640309,
+        "mse": 6.878761773120782e-05
+      }
+    },
+    "nittedal_p02_01": {
+      "df": 4,
+      "s2_dir_name": "nittedal_p02_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.9843921661376953,
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 1.33
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.07,
+        "dx": -1.33
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": -0.08
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.432544708251953,
+        "ssim": 0.8073132038116455,
+        "ncc": 0.6394568250898948,
+        "mse": 0.000730427608294545
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.98017692565918,
+        "ssim": 0.8210673332214355,
+        "ncc": 0.6794249149327448,
+        "mse": 0.0006438935058665109
+      },
+      "delta": {
+        "psnr": 0.5476322174072266,
+        "ssim": 0.013754129409790039,
+        "ncc": 0.03996808984285005,
+        "mse": 8.653410242803413e-05
+      },
+      "tile_id": "nittedal_p02_01",
+      "parent_city": "nittedal",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "ba12067b617bd14647c410379279968f14a6c327757bc85eea981e6ad3a59044"
+    },
+    "nittedal_p02_02": {
+      "df": 4,
+      "s2_dir_name": "nittedal_p02_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.9844160079956055,
+      "hr_shift_hr_px": {
+        "dy": -1.08,
+        "dx": 1.07
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.08,
+        "dx": -1.07
+      },
+      "phase_init_hr_px": {
+        "dy": 0.08,
+        "dx": -0.07
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.26622200012207,
+        "ssim": 0.7994312644004822,
+        "ncc": 0.769625220325898,
+        "mse": 0.0007589249942814965
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.734556198120117,
+        "ssim": 0.8101580739021301,
+        "ncc": 0.7920737797635751,
+        "mse": 0.0006813426180419887
+      },
+      "delta": {
+        "psnr": 0.4683341979980469,
+        "ssim": 0.01072680950164795,
+        "ncc": 0.022448559437677096,
+        "mse": 7.758237623950773e-05
+      },
+      "tile_id": "nittedal_p02_02",
+      "parent_city": "nittedal",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "f3116cfd47e7ae583f5d2f3c0b630c2c0ffb3f6f6bcc5b4d5c1d357c2bc9e2da"
+    },
+    "nittedal_p02_03": {
+      "df": 4,
+      "s2_dir_name": "nittedal_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.12,
+        "dx": 0.54
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.12,
+        "dx": -0.54
+      },
+      "phase_init_hr_px": {
+        "dy": 0.12,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.553138732910156,
+        "ssim": 0.8193524479866028,
+        "ncc": 0.8103172191340903,
+        "mse": 0.0005642847557911112
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.77910232543945,
+        "ssim": 0.8239789009094238,
+        "ncc": 0.8191209936807359,
+        "mse": 0.0005356756238706914
+      },
+      "delta": {
+        "psnr": 0.22596359252929688,
+        "ssim": 0.004626452922821045,
+        "ncc": 0.008803774546645604,
+        "mse": 2.860913192041976e-05
+      },
+      "tile_id": "nittedal_p02_03",
+      "parent_city": "nittedal",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5833ea79d9fef30cf6cd95e69d2ceab8b5b6874f2d2f5679eb1545b62914a0c2"
+    },
+    "nittedal_p03_02": {
+      "df": 4,
+      "s2_dir_name": "nittedal_p03_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.12,
+        "dx": 1.12
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.12,
+        "dx": -1.12
+      },
+      "phase_init_hr_px": {
+        "dy": 0.12,
+        "dx": -0.12
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.37627410888672,
+        "ssim": 0.8282561302185059,
+        "ncc": 0.7520500610129581,
+        "mse": 0.0004668579535564867
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.7816047668457,
+        "ssim": 0.8381951451301575,
+        "ncc": 0.7751067080050181,
+        "mse": 0.0004252575525888634
+      },
+      "delta": {
+        "psnr": 0.4053306579589844,
+        "ssim": 0.009939014911651611,
+        "ncc": 0.023056646992060004,
+        "mse": 4.160040096762329e-05
+      },
+      "tile_id": "nittedal_p03_02",
+      "parent_city": "nittedal",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "4822349a54e8db5ccd4294fc75a2d17e72db1d35ca36d8649b0e03f5961ab0c5"
+    },
+    "nittedal_p04_02": {
+      "df": 4,
+      "s2_dir_name": "nittedal_p04_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2026-04-21",
+      "nib_acquisition_date": "2026-04-24",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.09,
+        "dx": 0.88
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.09,
+        "dx": -0.88
+      },
+      "phase_init_hr_px": {
+        "dy": 0.09,
+        "dx": -0.13
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.08951187133789,
+        "ssim": 0.8490102887153625,
+        "ncc": 0.8021162477680187,
+        "mse": 0.00039615143522191506
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.412235260009766,
+        "ssim": 0.8557929992675781,
+        "ncc": 0.8165776103577207,
+        "mse": 0.0003677805994158005
+      },
+      "delta": {
+        "psnr": 0.322723388671875,
+        "ssim": 0.006782710552215576,
+        "ncc": 0.014461362589701987,
+        "mse": 2.8370835806114587e-05
+      },
+      "tile_id": "nittedal_p04_02",
+      "parent_city": "nittedal",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "64f83dc79da18a004dd148e18837b929960db2ca0763f533f7f4966d2afaaefa"
+    },
+    "rafsbotn": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn",
+      "lr_size": [
+        260,
+        260
+      ],
+      "hr_size": [
+        1040,
+        1040
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.9694674556213018,
+      "hr_shift_hr_px": {
+        "dy": -0.79,
+        "dx": -0.0
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.79,
+        "dx": 0.0
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.117801666259766,
+        "ssim": 0.9224845170974731,
+        "ncc": 0.5766046171029896,
+        "mse": 0.00039965606548149265
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.14804458618164,
+        "ssim": 0.9230642914772034,
+        "ncc": 0.5792279499357322,
+        "mse": 0.00039688292255630217
+      },
+      "delta": {
+        "psnr": 0.030242919921875,
+        "ssim": 0.0005797743797302246,
+        "ncc": 0.002623332832742631,
+        "mse": 2.773142925190477e-06
+      }
+    },
+    "rafsbotn_lr512": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.62,
+        "dx": 0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.62,
+        "dx": -0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.12,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.726903915405273,
+        "ssim": 0.8979374766349792,
+        "ncc": 0.42642216759534474,
+        "mse": 0.0013618270662421274
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.738630294799805,
+        "ssim": 0.8984780311584473,
+        "ncc": 0.4271701224077366,
+        "mse": 0.0013581552301427302
+      },
+      "delta": {
+        "psnr": 0.01172637939453125,
+        "ssim": 0.0005405545234680176,
+        "ncc": 0.0007479548123918711,
+        "mse": 3.671836099397195e-06
+      }
+    },
+    "rafsbotn_p01_02": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p01_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.01,
+        "dx": -0.28
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.01,
+        "dx": 0.28
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": 0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.594661712646484,
+        "ssim": 0.960582971572876,
+        "ncc": 0.8544688712188668,
+        "mse": 0.00017674463100094065
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.64576721191406,
+        "ssim": 0.9610207676887512,
+        "ncc": 0.8562231667924322,
+        "mse": 0.00017467693602282546
+      },
+      "delta": {
+        "psnr": 0.051105499267578125,
+        "ssim": 0.00043779611587524414,
+        "ncc": 0.0017542955735653232,
+        "mse": 2.0676949781151964e-06
+      },
+      "tile_id": "rafsbotn_p01_02",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "f77ae051529de477ba2b8e4c3f093fecdc8baab2486020522c44339a6f143a10"
+    },
+    "rafsbotn_p02_01": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p02_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": 0.03
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": -0.03
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.568939208984375,
+        "ssim": 0.8743175864219666,
+        "ncc": 0.7924008261460076,
+        "mse": 0.0005622356119151775
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.62763977050781,
+        "ssim": 0.875931978225708,
+        "ncc": 0.7951733972114594,
+        "mse": 0.0005546875342296098
+      },
+      "delta": {
+        "psnr": 0.0587005615234375,
+        "ssim": 0.001614391803741455,
+        "ncc": 0.002772571065451812,
+        "mse": 7.548077685567739e-06
+      },
+      "tile_id": "rafsbotn_p02_01",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "ab678360e78530b4434392184b07c4576d6d3c2cc8e9744485b11897db76e80f"
+    },
+    "rafsbotn_p02_02": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p02_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": -0.0
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": 0.0
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.67818069458008,
+        "ssim": 0.9106776118278503,
+        "ncc": 0.7300608428685341,
+        "mse": 0.00034593481646979737
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.72111511230469,
+        "ssim": 0.9113848805427551,
+        "ncc": 0.7327333106437128,
+        "mse": 0.00034253172791219453
+      },
+      "delta": {
+        "psnr": 0.042934417724609375,
+        "ssim": 0.0007072687149047852,
+        "ncc": 0.0026724677751787107,
+        "mse": 3.4030885576028414e-06
+      },
+      "tile_id": "rafsbotn_p02_02",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "9d7edcff9098b8e79aa147fecd103665a8be94da5e998744a0b199c3554b17bf"
+    },
+    "rafsbotn_p03_01": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p03_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8,
+        "dx": 0.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8,
+        "dx": -0.04
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 28.693397521972656,
+        "ssim": 0.8914887309074402,
+        "ncc": 0.5636106297550711,
+        "mse": 0.0013723745853189786
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 28.709192276000977,
+        "ssim": 0.8922494053840637,
+        "ncc": 0.5651044563443272,
+        "mse": 0.0013673925154039303
+      },
+      "delta": {
+        "psnr": 0.015794754028320312,
+        "ssim": 0.0007606744766235352,
+        "ncc": 0.0014938265892560088,
+        "mse": 4.982069915048307e-06
+      },
+      "tile_id": "rafsbotn_p03_01",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "0da3e6460195ca66539bffca6504f25d74b946595e544ac58d12221501c6ccee"
+    },
+    "rafsbotn_p03_02": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p03_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.8200000000000001,
+        "dx": 0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.8200000000000001,
+        "dx": -0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.20634078979492,
+        "ssim": 0.9290526509284973,
+        "ncc": 0.6369530938226184,
+        "mse": 0.00030632225473390366
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.25240707397461,
+        "ssim": 0.9296017289161682,
+        "ncc": 0.6403033166486071,
+        "mse": 0.00030308978403296126
+      },
+      "delta": {
+        "psnr": 0.0460662841796875,
+        "ssim": 0.0005490779876708984,
+        "ncc": 0.0033502228259886246,
+        "mse": 3.2324707009424012e-06
+      },
+      "tile_id": "rafsbotn_p03_02",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "1fae2f3a862efcfa0ebfa9e0b4935efe2ba105823abdc340dc3475e22c9f8f97"
+    },
+    "rafsbotn_p04_01": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p04_01",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.56,
+        "dx": 0.02
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.56,
+        "dx": -0.02
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.69535827636719,
+        "ssim": 0.927440881729126,
+        "ncc": 0.773153353616739,
+        "mse": 0.0002737010738001782
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.72676467895508,
+        "ssim": 0.9278613924980164,
+        "ncc": 0.7745291859407195,
+        "mse": 0.00027172889242915054
+      },
+      "delta": {
+        "psnr": 0.031406402587890625,
+        "ssim": 0.00042051076889038086,
+        "ncc": 0.0013758323239805303,
+        "mse": 1.9721813710276673e-06
+      },
+      "tile_id": "rafsbotn_p04_01",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "81d07780633a106884ba58c95d778deedb43d1440609599d1ed8f19a603c0208"
+    },
+    "rafsbotn_p04_02": {
+      "df": 4,
+      "s2_dir_name": "rafsbotn_p04_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2024-08-14",
+      "nib_acquisition_date": "2024-08-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.81,
+        "dx": -0.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.81,
+        "dx": 0.01
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.3797664642334,
+        "ssim": 0.9223043918609619,
+        "ncc": 0.4414539714286099,
+        "mse": 0.0007393256038942923
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.392080307006836,
+        "ssim": 0.92275470495224,
+        "ncc": 0.4429959943730356,
+        "mse": 0.0007372323648633793
+      },
+      "delta": {
+        "psnr": 0.0123138427734375,
+        "ssim": 0.00045031309127807617,
+        "ncc": 0.0015420229444256806,
+        "mse": 2.093239030913005e-06
+      },
+      "tile_id": "rafsbotn_p04_02",
+      "parent_city": "rafsbotn",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5d9c75f4c7337341fdb8b58be3cb056618bf981c8adabd97975a7e0f200293ae"
+    },
+    "rana_lr512": {
+      "df": 4,
+      "s2_dir_name": "rana_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2019-07-27",
+      "nib_acquisition_date": "2019-07-25",
+      "valid_fraction": 0.9595599174499512,
+      "hr_shift_hr_px": {
+        "dy": 1.55,
+        "dx": 1.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.55,
+        "dx": -1.04
+      },
+      "phase_init_hr_px": {
+        "dy": -0.05,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.234832763671875,
+        "ssim": 0.8362717628479004,
+        "ncc": 0.7459810159329116,
+        "mse": 0.0006229374980258462
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.5875244140625,
+        "ssim": 0.8452758193016052,
+        "ncc": 0.7653815782380727,
+        "mse": 0.000574348060283106
+      },
+      "delta": {
+        "psnr": 0.352691650390625,
+        "ssim": 0.009004056453704834,
+        "ncc": 0.019400562305161184,
+        "mse": 4.85894377427402e-05
+      }
     },
     "stavanger": {
       "df": 4,
@@ -359,6 +5006,1438 @@
       "notes": "Thin MGRS-edge strip (295\u00d740 LR). Shift estimated on full rectangle; geometric rotation ~0. Inscribed 40\u00d740 square is less stable \u2014 do not use.",
       "ncc_before": 0.7278596758842468,
       "ncc_after": 0.7285348176956177
+    },
+    "stavanger_lr512": {
+      "df": 4,
+      "s2_dir_name": "stavanger_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-05-10",
+      "nib_acquisition_date": "2025-05-10",
+      "valid_fraction": 0.980900764465332,
+      "hr_shift_hr_px": {
+        "dy": -0.0,
+        "dx": -0.0
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "phase_init_hr_px": {
+        "dy": 0.0,
+        "dx": 0.0
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.20795440673828,
+        "ssim": 0.910557746887207,
+        "ncc": 0.8521719342008038,
+        "mse": 0.00024410651547704523
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 36.20795440673828,
+        "ssim": 0.910557746887207,
+        "ncc": 0.8521719342008038,
+        "mse": 0.00024410651547704523
+      },
+      "delta": {
+        "psnr": 0.0,
+        "ssim": 0.0,
+        "ncc": 0.0,
+        "mse": 0.0
+      }
+    },
+    "tromso_lr512": {
+      "df": 4,
+      "s2_dir_name": "tromso_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2021-08-08",
+      "nib_acquisition_date": "2021-08-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 4.8,
+        "dx": 1.3599999999999999
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -4.8,
+        "dx": -1.3599999999999999
+      },
+      "phase_init_hr_px": {
+        "dy": -4.55,
+        "dx": -1.8599999999999999
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 30.01019859313965,
+        "ssim": 0.7573031783103943,
+        "ncc": 0.7680696650983242,
+        "mse": 0.0010134272097309667
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.23319625854492,
+        "ssim": 0.8107507824897766,
+        "ncc": 0.8600545988179217,
+        "mse": 0.0006074248492733727
+      },
+      "delta": {
+        "psnr": 2.2229976654052734,
+        "ssim": 0.053447604179382324,
+        "ncc": 0.09198493371959748,
+        "mse": 0.00040600236045759393
+      }
+    },
+    "tromso_p02_03": {
+      "df": 4,
+      "s2_dir_name": "tromso_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2021-08-08",
+      "nib_acquisition_date": "2021-08-07",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 4.79,
+        "dx": 1.4
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -4.79,
+        "dx": -1.4
+      },
+      "phase_init_hr_px": {
+        "dy": -4.54,
+        "dx": -1.9
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 29.81134033203125,
+        "ssim": 0.747244656085968,
+        "ncc": 0.7496485296642327,
+        "mse": 0.0010609098353578218
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.957429885864258,
+        "ssim": 0.8059709668159485,
+        "ncc": 0.8460185589496256,
+        "mse": 0.0006472459437609043
+      },
+      "delta": {
+        "psnr": 2.146089553833008,
+        "ssim": 0.05872631072998047,
+        "ncc": 0.09637002928539296,
+        "mse": 0.0004136638915969175
+      },
+      "tile_id": "tromso_p02_03",
+      "parent_city": "tromso",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "7496005c84bea79ac26289198cc8d6aa3d288f3ef5a32b39c17c20c019aef3ef"
+    },
+    "trondheim_lr512": {
+      "df": 4,
+      "s2_dir_name": "trondheim_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.07,
+        "dx": 0.99
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.07,
+        "dx": -0.99
+      },
+      "phase_init_hr_px": {
+        "dy": 0.07,
+        "dx": 0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.773136138916016,
+        "ssim": 0.8051185011863708,
+        "ncc": 0.746492411720664,
+        "mse": 0.0006753030052734414
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.14297866821289,
+        "ssim": 0.8140146136283875,
+        "ncc": 0.7672531192554465,
+        "mse": 0.000620174950914449
+      },
+      "delta": {
+        "psnr": 0.369842529296875,
+        "ssim": 0.008896112442016602,
+        "ncc": 0.02076070753478243,
+        "mse": 5.512805435899245e-05
+      }
+    },
+    "trondheim_p02_03": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p02_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.06,
+        "dx": 1.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.06,
+        "dx": -1.01
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.73418045043945,
+        "ssim": 0.9412930607795715,
+        "ncc": 0.731283385071077,
+        "mse": 0.0001711568776507084
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.885658264160156,
+        "ssim": 0.942620575428009,
+        "ncc": 0.7398973101539955,
+        "mse": 0.0001652899935904037
+      },
+      "delta": {
+        "psnr": 0.15147781372070312,
+        "ssim": 0.0013275146484375,
+        "ncc": 0.008613925082918472,
+        "mse": 5.866884060304713e-06
+      },
+      "tile_id": "trondheim_p02_03",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "130ad168ee6e3c943a4e7d9ba12a3399c6b579efaf53101075a3555909e99cd8"
+    },
+    "trondheim_p03_02": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p03_02",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.05,
+        "dx": 1.3
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.05,
+        "dx": -1.3
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.835044860839844,
+        "ssim": 0.9529443383216858,
+        "ncc": 0.8897269229589971,
+        "mse": 0.00021052717094980389
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.094871520996094,
+        "ssim": 0.9553660750389099,
+        "ncc": 0.896218166203207,
+        "mse": 0.00019830103529432533
+      },
+      "delta": {
+        "psnr": 0.25982666015625,
+        "ssim": 0.002421736717224121,
+        "ncc": 0.00649124324420991,
+        "mse": 1.222613565547855e-05
+      },
+      "tile_id": "trondheim_p03_02",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "ea4f5836c47f92da8c4ceb5f35c68a87024002734668e5f9c379f77fe9de5277"
+    },
+    "trondheim_p03_03": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p03_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.55,
+        "dx": 1.29
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.55,
+        "dx": -1.29
+      },
+      "phase_init_hr_px": {
+        "dy": 0.05,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 38.826698303222656,
+        "ssim": 0.9442463517189026,
+        "ncc": 0.8068436457538923,
+        "mse": 0.00013308918565059998
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 39.22547912597656,
+        "ssim": 0.9467296600341797,
+        "ncc": 0.8246933801123033,
+        "mse": 0.00012141280006694256
+      },
+      "delta": {
+        "psnr": 0.39878082275390625,
+        "ssim": 0.0024833083152770996,
+        "ncc": 0.017849734358410974,
+        "mse": 1.1676385583657425e-05
+      },
+      "tile_id": "trondheim_p03_03",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "592a59b6a56811e5a0042d2b844061f5ecb945ee0e822f66dfaec1d0c83067b0"
+    },
+    "trondheim_p03_04": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p03_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.06,
+        "dx": 0.79
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.06,
+        "dx": -0.79
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.49238204956055,
+        "ssim": 0.8282099366188049,
+        "ncc": 0.7995355985332779,
+        "mse": 0.0005722346345749105
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 32.805294036865234,
+        "ssim": 0.834331750869751,
+        "ncc": 0.8126670672514993,
+        "mse": 0.0005324549977691364
+      },
+      "delta": {
+        "psnr": 0.3129119873046875,
+        "ssim": 0.006121814250946045,
+        "ncc": 0.01313146871822135,
+        "mse": 3.9779636805774114e-05
+      },
+      "tile_id": "trondheim_p03_04",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "0187beb5b736762bdc72448157d4f6e6dfe1a107752d8e4c5ba427be477730e5"
+    },
+    "trondheim_p03_05": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p03_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.06,
+        "dx": 0.8
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.06,
+        "dx": -0.8
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.461524963378906,
+        "ssim": 0.8778086304664612,
+        "ncc": 0.8258570862328779,
+        "mse": 0.000363630264498235
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.74312973022461,
+        "ssim": 0.8825332522392273,
+        "ncc": 0.8367732263903843,
+        "mse": 0.00034079976295659886
+      },
+      "delta": {
+        "psnr": 0.2816047668457031,
+        "ssim": 0.004724621772766113,
+        "ncc": 0.010916140157506415,
+        "mse": 2.2830501541636127e-05
+      },
+      "tile_id": "trondheim_p03_05",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "999f0110ca53f9d01efbe08194b067e5a2fddd03bcbe765a76b29e38e8d35ff5"
+    },
+    "trondheim_p03_06": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p03_06",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.06,
+        "dx": 0.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.06,
+        "dx": -0.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 37.072715759277344,
+        "ssim": 0.9374244809150696,
+        "ncc": 0.8612334778903961,
+        "mse": 0.0001993153914984888
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.258544921875,
+        "ssim": 0.9389140009880066,
+        "ncc": 0.866565506993019,
+        "mse": 0.00019096675438018496
+      },
+      "delta": {
+        "psnr": 0.18582916259765625,
+        "ssim": 0.0014895200729370117,
+        "ncc": 0.005332029102622982,
+        "mse": 8.348637118303843e-06
+      },
+      "tile_id": "trondheim_p03_06",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "c1efaea33b21f629bf5aeec3287057086a70c4cfe46b7fe982648c4ff0038235"
+    },
+    "trondheim_p04_03": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p04_03",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.26,
+        "dx": 1.52
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.26,
+        "dx": -1.52
+      },
+      "phase_init_hr_px": {
+        "dy": 0.01,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.2060432434082,
+        "ssim": 0.9315652251243591,
+        "ncc": 0.7959588659235606,
+        "mse": 0.00030634309167207807
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.452110290527344,
+        "ssim": 0.9352254867553711,
+        "ncc": 0.8075693190967195,
+        "mse": 0.0002894684186214472
+      },
+      "delta": {
+        "psnr": 0.24606704711914062,
+        "ssim": 0.003660261631011963,
+        "ncc": 0.011610453173158897,
+        "mse": 1.6874673050630855e-05
+      },
+      "tile_id": "trondheim_p04_03",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "4f13af7a0881118c954cceff1faa24023782f28710f4fe089d73a0e02a600580"
+    },
+    "trondheim_p04_04": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p04_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.06,
+        "dx": 0.81
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.06,
+        "dx": -0.81
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.06
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 31.593887329101562,
+        "ssim": 0.8277207016944885,
+        "ncc": 0.8294563782491318,
+        "mse": 0.0007037584844895632
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 31.84687042236328,
+        "ssim": 0.8352295756340027,
+        "ncc": 0.8390940213326894,
+        "mse": 0.0006639348157856634
+      },
+      "delta": {
+        "psnr": 0.25298309326171875,
+        "ssim": 0.00750887393951416,
+        "ncc": 0.009637643083557634,
+        "mse": 3.982366870389979e-05
+      },
+      "tile_id": "trondheim_p04_04",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "6657a6823fe780fa88db80e6efb48b77fd44e4d7c889826e6e8a1f9014830146"
+    },
+    "trondheim_p04_05": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p04_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.03,
+        "dx": 0.8
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.03,
+        "dx": -0.8
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.05
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.85837936401367,
+        "ssim": 0.9392744898796082,
+        "ncc": 0.8310954516681118,
+        "mse": 0.0002093989765492966
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.082462310791016,
+        "ssim": 0.9410969614982605,
+        "ncc": 0.8392857256647498,
+        "mse": 0.00019886837542724712
+      },
+      "delta": {
+        "psnr": 0.22408294677734375,
+        "ssim": 0.0018224716186523438,
+        "ncc": 0.008190273996637965,
+        "mse": 1.0530601122049485e-05
+      },
+      "tile_id": "trondheim_p04_05",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "3b5a8c0e0d5797961897495e2e7aab1106d18c10b58318666dc88b23c772114d"
+    },
+    "trondheim_p04_06": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p04_06",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -0.78,
+        "dx": 1.27
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 0.78,
+        "dx": -1.27
+      },
+      "phase_init_hr_px": {
+        "dy": 0.03,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 40.926082611083984,
+        "ssim": 0.9694144129753113,
+        "ncc": 0.8911985056818003,
+        "mse": 8.207375055820163e-05
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 41.11211013793945,
+        "ssim": 0.970130205154419,
+        "ncc": 0.8955177007869343,
+        "mse": 7.863233650155584e-05
+      },
+      "delta": {
+        "psnr": 0.18602752685546875,
+        "ssim": 0.000715792179107666,
+        "ncc": 0.0043191951051340105,
+        "mse": 3.4414140566457914e-06
+      },
+      "tile_id": "trondheim_p04_06",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "a6d7bba2c52af0507e464077642bcc917c9447b97942162ccca051531fd57d01"
+    },
+    "trondheim_p05_04": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p05_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.04,
+        "dx": 1.53
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.04,
+        "dx": -1.53
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.49325942993164,
+        "ssim": 0.9309905171394348,
+        "ncc": 0.8297027824589215,
+        "mse": 0.00028673875627753987
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.82143020629883,
+        "ssim": 0.9345390200614929,
+        "ncc": 0.8424785448701201,
+        "mse": 0.00026586973093006085
+      },
+      "delta": {
+        "psnr": 0.3281707763671875,
+        "ssim": 0.0035485029220581055,
+        "ncc": 0.012775762411198599,
+        "mse": 2.086902534747902e-05
+      },
+      "tile_id": "trondheim_p05_04",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "065ea632181a1072f9bdcf536c7bdfaed7fc9519e721cfd93851a95ffdf607da"
+    },
+    "trondheim_p05_05": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p05_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.31,
+        "dx": 1.54
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.31,
+        "dx": -1.54
+      },
+      "phase_init_hr_px": {
+        "dy": 0.06,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 35.247589111328125,
+        "ssim": 0.9222413897514343,
+        "ncc": 0.8187237016363661,
+        "mse": 0.00030342660731460554
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.61649703979492,
+        "ssim": 0.9269507527351379,
+        "ncc": 0.8336877238579392,
+        "mse": 0.0002787163578137316
+      },
+      "delta": {
+        "psnr": 0.3689079284667969,
+        "ssim": 0.004709362983703613,
+        "ncc": 0.014964022221573114,
+        "mse": 2.4710249500873953e-05
+      },
+      "tile_id": "trondheim_p05_05",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "501ded80fd74f7898d248793f2fa151bcdfd7bc4d73815eb9daa19184441e3d0"
+    },
+    "trondheim_p05_06": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p05_06",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.04,
+        "dx": 0.77
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.04,
+        "dx": -0.77
+      },
+      "phase_init_hr_px": {
+        "dy": 0.04,
+        "dx": -0.02
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 39.13341522216797,
+        "ssim": 0.9494032859802246,
+        "ncc": 0.7506809912914213,
+        "mse": 0.00012401398113908428
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 39.29240798950195,
+        "ssim": 0.9505632519721985,
+        "ncc": 0.759807325847871,
+        "mse": 0.00011955595633464623
+      },
+      "delta": {
+        "psnr": 0.15899276733398438,
+        "ssim": 0.001159965991973877,
+        "ncc": 0.009126334556449733,
+        "mse": 4.458024804438048e-06
+      },
+      "tile_id": "trondheim_p05_06",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "981d33795c181ed9018bd24700d7027916333e1a064a02ca88bde763644248ac"
+    },
+    "trondheim_p05_07": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p05_07",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": -1.02,
+        "dx": 0.78
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.02,
+        "dx": -0.78
+      },
+      "phase_init_hr_px": {
+        "dy": 0.02,
+        "dx": -0.03
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 39.23662185668945,
+        "ssim": 0.9513976573944092,
+        "ncc": 0.743551836379438,
+        "mse": 0.00012110158473426947
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 39.3707389831543,
+        "ssim": 0.9524027705192566,
+        "ncc": 0.7516804823120582,
+        "mse": 0.0001174190550343951
+      },
+      "delta": {
+        "psnr": 0.13411712646484375,
+        "ssim": 0.0010051131248474121,
+        "ncc": 0.008128645932620193,
+        "mse": 3.682529699874373e-06
+      },
+      "tile_id": "trondheim_p05_07",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "24f0d0b0f72ad2f671c92ddb41082f00f33dd466dd672a9180dc045c71a09f11"
+    },
+    "trondheim_p06_05": {
+      "df": 4,
+      "s2_dir_name": "trondheim_p06_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-06-13",
+      "nib_acquisition_date": "2025-06-14",
+      "valid_fraction": 0.9828245639801025,
+      "hr_shift_hr_px": {
+        "dy": -1.74,
+        "dx": 2.01
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": 1.74,
+        "dx": -2.01
+      },
+      "phase_init_hr_px": {
+        "dy": -0.01,
+        "dx": -0.01
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.836585998535156,
+        "ssim": 0.94868403673172,
+        "ncc": 0.6744426501224332,
+        "mse": 0.0002107973690244074
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.168304443359375,
+        "ssim": 0.9516234397888184,
+        "ncc": 0.6991302223054188,
+        "mse": 0.0001952960137394011
+      },
+      "delta": {
+        "psnr": 0.33171844482421875,
+        "ssim": 0.0029394030570983887,
+        "ncc": 0.024687572182985562,
+        "mse": 1.550135528500629e-05
+      },
+      "tile_id": "trondheim_p06_05",
+      "parent_city": "trondheim",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "d0064eca26594b2147b527fba9be687521e7e5fcb97c0b7e8bb09fe84eb8c6e1"
+    },
+    "vennesla_lr512": {
+      "df": 4,
+      "s2_dir_name": "vennesla_lr512",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.9808416366577148,
+      "hr_shift_hr_px": {
+        "dy": 1.02,
+        "dx": 2.04
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.02,
+        "dx": -2.04
+      },
+      "phase_init_hr_px": {
+        "dy": -0.02,
+        "dx": -0.04
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 32.80670928955078,
+        "ssim": 0.8484117388725281,
+        "ncc": 0.7815586565561755,
+        "mse": 0.000534232318272431
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 33.792396545410156,
+        "ssim": 0.8689287304878235,
+        "ncc": 0.8266947684545228,
+        "mse": 0.00042575644126329186
+      },
+      "delta": {
+        "psnr": 0.985687255859375,
+        "ssim": 0.02051699161529541,
+        "ncc": 0.04513611189834732,
+        "mse": 0.00010847587700913916
+      }
+    },
+    "vennesla_p04_07": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p04_07",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.12,
+        "dx": 2.94
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.12,
+        "dx": -2.94
+      },
+      "phase_init_hr_px": {
+        "dy": -0.12,
+        "dx": -2.44
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.47149658203125,
+        "ssim": 0.8963308334350586,
+        "ncc": 0.7788224476463441,
+        "mse": 0.0003627962777469982
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.63785934448242,
+        "ssim": 0.9120517373085022,
+        "ncc": 0.8318768901175301,
+        "mse": 0.0002773487735215132
+      },
+      "delta": {
+        "psnr": 1.1663627624511719,
+        "ssim": 0.015720903873443604,
+        "ncc": 0.05305444247118596,
+        "mse": 8.544750422548504e-05
+      },
+      "tile_id": "vennesla_p04_07",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "abaef2c90712be90494db0b187230f3af79644a63ec31f600e1dc1c5ab6cfdbc"
+    },
+    "vennesla_p04_08": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p04_08",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.36,
+        "dx": 3.25
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.36,
+        "dx": -3.25
+      },
+      "phase_init_hr_px": {
+        "dy": -0.11,
+        "dx": -2.5
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.72446823120117,
+        "ssim": 0.9294440150260925,
+        "ncc": 0.7771065917724156,
+        "mse": 0.00021595616386614117
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 38.05733108520508,
+        "ssim": 0.9408157467842102,
+        "ncc": 0.8362975829828712,
+        "mse": 0.0001588836673639969
+      },
+      "delta": {
+        "psnr": 1.3328628540039062,
+        "ssim": 0.011371731758117676,
+        "ncc": 0.05919099121045557,
+        "mse": 5.7072496502144274e-05
+      },
+      "tile_id": "vennesla_p04_08",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5396b9b1e7f941cb8f24704b8ab762af8bcac47f833563ee86d533cffd09a117"
+    },
+    "vennesla_p05_04": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p05_04",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.34,
+        "dx": 2.94
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.34,
+        "dx": -2.94
+      },
+      "phase_init_hr_px": {
+        "dy": -0.09,
+        "dx": -2.44
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.49894714355469,
+        "ssim": 0.9216210842132568,
+        "ncc": 0.7780543382397058,
+        "mse": 0.0002274665941085538
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 38.0787239074707,
+        "ssim": 0.9354462623596191,
+        "ncc": 0.846027525614631,
+        "mse": 0.000158102781497037
+      },
+      "delta": {
+        "psnr": 1.5797767639160156,
+        "ssim": 0.013825178146362305,
+        "ncc": 0.06797318737492519,
+        "mse": 6.93638126115168e-05
+      },
+      "tile_id": "vennesla_p05_04",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "59122a0763e03bc2184bfb224bb6b008161935b5190827e3455e94ef3a39cd79"
+    },
+    "vennesla_p05_05": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p05_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.35,
+        "dx": 3.19
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.35,
+        "dx": -3.19
+      },
+      "phase_init_hr_px": {
+        "dy": -0.1,
+        "dx": -2.44
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.007667541503906,
+        "ssim": 0.9189326167106628,
+        "ncc": 0.7716981807642886,
+        "mse": 0.00025470980643181796
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.359100341796875,
+        "ssim": 0.932159960269928,
+        "ncc": 0.8331170406525522,
+        "mse": 0.00018659594420321945
+      },
+      "delta": {
+        "psnr": 1.3514328002929688,
+        "ssim": 0.013227343559265137,
+        "ncc": 0.061418859888263566,
+        "mse": 6.811386222859851e-05
+      },
+      "tile_id": "vennesla_p05_05",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "6d8b48440c9041196e5cee1cab8c2bc8262e5573552da57939da1f6611d3ce41"
+    },
+    "vennesla_p05_06": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p05_06",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.32,
+        "dx": 3.2
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.32,
+        "dx": -3.2
+      },
+      "phase_init_hr_px": {
+        "dy": -0.07,
+        "dx": -2.45
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.32547378540039,
+        "ssim": 0.9069264531135559,
+        "ncc": 0.7499445551958378,
+        "mse": 0.00037520190225439487
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.569862365722656,
+        "ssim": 0.9224892258644104,
+        "ncc": 0.8117840174930756,
+        "mse": 0.0002817253836774398
+      },
+      "delta": {
+        "psnr": 1.2443885803222656,
+        "ssim": 0.015562772750854492,
+        "ncc": 0.0618394622972378,
+        "mse": 9.347651857695508e-05
+      },
+      "tile_id": "vennesla_p05_06",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "4ab25319dad3dfc73a6016fc2d36fc51216f16f1ccac2d77a4239b17110660db"
+    },
+    "vennesla_p05_07": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p05_07",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.1,
+        "dx": 3.21
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.1,
+        "dx": -3.21
+      },
+      "phase_init_hr_px": {
+        "dy": -0.1,
+        "dx": -2.46
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 36.12203598022461,
+        "ssim": 0.9223598837852478,
+        "ncc": 0.761752885374204,
+        "mse": 0.0002480895920084815
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 37.22121810913086,
+        "ssim": 0.9338135719299316,
+        "ncc": 0.8160173525287986,
+        "mse": 0.00019261523571274854
+      },
+      "delta": {
+        "psnr": 1.09918212890625,
+        "ssim": 0.011453688144683838,
+        "ncc": 0.05426446715459454,
+        "mse": 5.547435629573298e-05
+      },
+      "tile_id": "vennesla_p05_07",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "5ebd7fd45d56bffe5bb40c6efa5bb2b15a2eaab219fbb8c9f1f7a45156c9615f"
+    },
+    "vennesla_p05_08": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p05_08",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.98443603515625,
+      "hr_shift_hr_px": {
+        "dy": 1.1,
+        "dx": 2.93
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.1,
+        "dx": -2.93
+      },
+      "phase_init_hr_px": {
+        "dy": -0.1,
+        "dx": -2.43
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 34.752525329589844,
+        "ssim": 0.9014216065406799,
+        "ncc": 0.8796580056394605,
+        "mse": 0.0003400632600638487
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 35.97222137451172,
+        "ssim": 0.916653573513031,
+        "ncc": 0.9096953837128532,
+        "mse": 0.00025679714209069616
+      },
+      "delta": {
+        "psnr": 1.219696044921875,
+        "ssim": 0.015231966972351074,
+        "ncc": 0.030037378073392684,
+        "mse": 8.326611797315254e-05
+      },
+      "tile_id": "vennesla_p05_08",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "8fb789de67f2d82ed7bec83ebf5e41089453b03f0e4097a426c2ecea5ff87741"
+    },
+    "vennesla_p06_05": {
+      "df": 4,
+      "s2_dir_name": "vennesla_p06_05",
+      "lr_size": [
+        512,
+        512
+      ],
+      "hr_size": [
+        2048,
+        2048
+      ],
+      "base_frame_index": 0,
+      "base_frame_date": "2025-04-06",
+      "nib_acquisition_date": "2025-04-06",
+      "valid_fraction": 0.9844057559967041,
+      "hr_shift_hr_px": {
+        "dy": 1.3,
+        "dx": 2.09
+      },
+      "s2_bilinear_shift_hr_px": {
+        "dy": -1.3,
+        "dx": -2.09
+      },
+      "phase_init_hr_px": {
+        "dy": -0.05,
+        "dx": -0.09
+      },
+      "before_align_s2_to_hr": {
+        "psnr": 33.43318557739258,
+        "ssim": 0.8934796452522278,
+        "ncc": 0.7849384362067463,
+        "mse": 0.00046079413535983173
+      },
+      "after_align_s2_to_hr": {
+        "psnr": 34.39855194091797,
+        "ssim": 0.9081268906593323,
+        "ncc": 0.8282586762679588,
+        "mse": 0.0003689524245133201
+      },
+      "delta": {
+        "psnr": 0.9653663635253906,
+        "ssim": 0.014647245407104492,
+        "ncc": 0.04332024006121249,
+        "mse": 9.184171084651165e-05
+      },
+      "tile_id": "vennesla_p06_05",
+      "parent_city": "vennesla",
+      "alignment_scope": "lr512_patch_exact",
+      "status": "accepted",
+      "input_manifest_sha256": "adaf5666260767c47d15d58f7ea75657ac4c746458f7d0469d7632ff2f1c557b",
+      "s2_meta_sha256": "605fa3a0f4bf7c0ecaed8057d77ca8c7433afca8daf792dd359d51f16a37042d"
     }
   }
 }

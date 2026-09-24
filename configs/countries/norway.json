@@ -1,0 +1,103 @@
+{
+  "$schema": "country.schema.json",
+  "schema_version": 1,
+  "country": {
+    "name": "Norway",
+    "iso_a2": "NO",
+    "iso_a3": "NOR"
+  },
+  "inputs": {
+    "land_outline_geojson": "production/cloud_availability/norway_outline_ne50m.geojson"
+  },
+  "inventory": {
+    "mgrs_list_json": "production/country_inventory/norway/mgrs_list.production.json",
+    "mgrs_bboxes_json": "production/cloud_availability/norway_mgrs_bboxes.json",
+    "min_tile_land_fraction": 0.0,
+    "include_bbox": [
+      4.0,
+      57.5,
+      34.0,
+      72.0
+    ],
+    "source_role": "curated_operational",
+    "expected_runnable_count": 73,
+    "expected_source_count": 74,
+    "diagnostic_mgrs_list_json": "production/country_inventory/norway/mgrs_list.derived.json",
+    "limitations": [
+      "The 62-tile outline-derived inventory is diagnostic only: MGRS zone-edge behavior and Natural Earth 1:50m geometry omit operational coastal coverage.",
+      "The curated operational inventory freezes 73 runnable tiles from the audited 74-tile Norway set; 33WVL is accounted for separately as unavailable."
+    ]
+  },
+  "paths": {
+    "plan_root": "production/national_2025/plans",
+    "s2_root": "data/s2_revisits/national_2025_v2"
+  },
+  "roots": {
+    "production": "production/national_2025",
+    "plans": "production/national_2025/plans",
+    "data": "data/s2_revisits/national_2025_v2",
+    "tiles": "data/s2_revisits/national_2025_v2",
+    "mosaics": "production/mosaics",
+    "results": "production/national_2025/runs"
+  },
+  "recipe": {
+    "date": "2025-07-15",
+    "start_date": "2025-05-31",
+    "end_date": "2025-08-29",
+    "side": 512,
+    "max_frames": 16,
+    "max_snow_frac": 0.05,
+    "max_cloud_frac": 0.15,
+    "min_valid_frac": 0.85,
+    "max_stac_items": 400,
+    "max_stac_cloud": 100.0,
+    "min_land_frac": 0.0,
+    "mainland_only": true,
+    "land_mask": "production/cloud_availability/norway_outline_ne50m.geojson",
+    "iters": 5000
+  },
+  "production": {
+    "scope": "all",
+    "run_prefix": "prod_k4_icm",
+    "fallback_prefix": "prod_k4_icm"
+  },
+  "delivery": {
+    "ramp_px": 128,
+    "harmonize": true,
+    "harmonize_strip_px": 256,
+    "harmonize_segments": 16,
+    "harmonize_regularization": 0.02,
+    "harmonize_max_offset": 0.04,
+    "harmonize_smoothness": 0.1,
+    "max_harmonized_edge_p95": 0.005
+  },
+  "cross_identity": {
+    "enabled": true,
+    "audit_only": false,
+    "common_crs": "EPSG:3035",
+    "adjacency_tolerance_m": 1.0,
+    "slack_cloud": 0.05,
+    "center_date": "2025-07-15"
+  },
+  "cross": {
+    "dst_crs": "EPSG:3035",
+    "resolution": 2.5,
+    "out": "production/national_2025/mosaics/norway_sr_2p5m.tif",
+    "max_overlap_mae": 0.055
+  },
+  "inventory_exceptions": [
+    {
+      "mgrs": "33WVL",
+      "status": "unavailable",
+      "reason": "No Sentinel-2 scenes in any audited 2025 seasonal window; explicit exception.",
+      "evidence": "production/cloud_availability/season_compare_2025/season_compare.json"
+    }
+  ],
+  "territory_scope": {
+    "included": "Mainland Norway and mainland-coastal islands represented by the frozen inventory",
+    "excluded": [
+      "Svalbard",
+      "Jan Mayen"
+    ]
+  }
+}

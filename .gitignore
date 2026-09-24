@@ -173,6 +173,15 @@ cython_debug/
 
 
 data/
+single_samples/
+all_data/
+satburstsynth_data/
+satsynthburst_data_s2psfm/
+worldstrat_test_data/
+geosr_misr_sample20/
+data_multiband*/
+data_real/
+experiments/
 final_mask_vis/
 results/
 wandb/
@@ -232,3 +241,10 @@ handheld/single_exposure_data/
 handheld/synthetic burst/
 handheld/handheld_synthetic/
 handheld/data
+
+# ScaleF run outputs and separately versioned paper
+production/
+logs/
+ScaleF_Overleaf/
+single_samples/
+data/

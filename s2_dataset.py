@@ -21,11 +21,16 @@ from data import (
 DEFAULT_S2_DIR = Path("data/s2_revisits/bergen")
 DEFAULT_NIB_ROOT = Path("data/nib_resampled")
 DEFAULT_NIB_FOCUS_ROOT = Path("data/nib_focus_1m_worldcover/projects")
+DEFAULT_NIB_NEW_ROOT = Path("data/nib_new_1m_worldcover/projects")
 DEFAULT_SPATIAL_ALIGNMENT_PATH = Path("eval/spatial_alignment.json")
+# Frozen identity frame: closest to the scene date among frames at or under this
+# cell SCL cloud fraction. National 32VNM v2 bright squares tracked the
+# *earliest* stack frame (often 10–14% cloud that still passed the 15% gate).
+DEFAULT_MAX_BASE_CLOUD_FRAC = 0.02
 S2_RGB_BANDS = (1, 2, 3)  # B04, B03, B02 in the RGBNIR GeoTIFF
 S2_NIR_BAND = 4
 
-# city id → focus project folder (new 8-area package)
+# city id → NIB project folder (aois.json collection: focus + new exports)
 FOCUS_PROJECT_BY_CITY = {
     "asker": "01_asker_akershus",
     "vennesla": "02_vennesla_agder",
@@ -35,7 +40,19 @@ FOCUS_PROJECT_BY_CITY = {
     "tromso": "06_tromso_troms",
     "amli": "07_amli_agder",
     "stavanger": "08_stavanger_rogaland",
+    "algard": "01_eksport_7531643_1_tile01",
+    "naerbo": "01_eksport_7531643_1_tile01",
+    "flekkefjord": "02_eksport_7532043_1",
+    "rafsbotn": "03_eksport_7532042_1_tile01",
+    "nittedal": "04_eksport_7532041_1",
+    "melhus": "05_eksport_7531640_1",
+    "alta": "06_eksport_7528850_1",
+    "karasjok": "08_eksport_7532042_1_tile03",
+    "kautokeino": "09_eksport_7532042_1_tile04",
 }
+
+# Prefer focus package first, then the newer export package.
+_NIB_PROJECT_ROOTS = (DEFAULT_NIB_FOCUS_ROOT, DEFAULT_NIB_NEW_ROOT)
 
 
 def is_s2_dataset_request(args, name: str | None) -> bool:
@@ -81,31 +98,64 @@ def resolve_s2_dir(args, name: str | None = None) -> Path:
 
 
 def _city_id_from_s2_dir(s2_dir: Path) -> str:
-    """Strip optional ``_lr{N}`` suffix used by size-ladder variants."""
+    """Map a revisit folder back to the city id used for NIB focus lookup.
+
+    Size-ladder dirs are ``{city}_lr{N}``. Affine-grid dirs are
+    ``{city}_g{N}`` or ``{city}_g{N}_y{i}_x{j}``.
+    """
     name = s2_dir.name
     if "_lr" in name:
         base, _, suffix = name.rpartition("_lr")
         if suffix.isdigit() and base:
             return base
+    for city in sorted(FOCUS_PROJECT_BY_CITY, key=len, reverse=True):
+        if name == city or name.startswith(f"{city}_"):
+            return city
     return name
 
 
-def resolve_focus_hr_path(city: str) -> str | None:
-    """NIB 1 m focus export via GDAL /vsizip (no extract).
+def resolve_focus_project_dir(city: str) -> Path | None:
+    """Directory under a NIB package that holds the city's export + valid mask."""
+    folder = FOCUS_PROJECT_BY_CITY.get(city)
+    if not folder:
+        return None
+    for root in _NIB_PROJECT_ROOTS:
+        proj = root / folder
+        if proj.is_dir():
+            return proj
+    return None
 
+
+def resolve_focus_hr_path(city: str) -> str | None:
+    """NIB 1 m export via GDAL /vsizip (no extract).
+
+    Searches ``nib_focus_1m_worldcover`` then ``nib_new_1m_worldcover``.
+    Zip basename differs across packages; member is always ``Eksport-nib.tif``.
     Returned as ``str`` (not ``Path``) so ``/vsizip//abs/path.zip/...`` is preserved;
     ``pathlib.Path`` would collapse the double slash and break GDAL.
     """
     folder = FOCUS_PROJECT_BY_CITY.get(city)
     if not folder:
         return None
-    zpath = DEFAULT_NIB_FOCUS_ROOT / folder / "nib_export_with_worldcover_metadata.zip"
-    if not zpath.is_file():
-        return None
-    return f"/vsizip/{zpath.resolve()}/Eksport-nib.tif"
+    zip_names = (
+        "nib_export_with_worldcover_metadata.zip",
+        "nib_export.zip",
+    )
+    for root in _NIB_PROJECT_ROOTS:
+        for zip_name in zip_names:
+            zpath = root / folder / zip_name
+            if zpath.is_file():
+                return f"/vsizip/{zpath.resolve()}/Eksport-nib.tif"
+    return None
 
 
-def resolve_hr_path(args, s2_dir: Path, hr_gsd_m: float) -> Path | str:
+def resolve_hr_path(args, s2_dir: Path, hr_gsd_m: float) -> Path | str | None:
+    """Resolve NIB/HR GT path, or None for production SR-only runs.
+
+    Production Norway (and other SR-only runs) pass ``--allow_no_hr`` and never
+    load aerial HR, even if a NIB package exists for the parent city id.
+    Explicit ``--hr-path`` still wins (dev override).
+    """
     explicit = getattr(args, "hr_path", None)
     if explicit:
         text = str(explicit)
@@ -115,6 +165,8 @@ def resolve_hr_path(args, s2_dir: Path, hr_gsd_m: float) -> Path | str:
         if not path.is_file():
             raise FileNotFoundError(f"--hr-path {path} does not exist")
         return path
+    if bool(getattr(args, "allow_no_hr", False)):
+        return None
     city = _city_id_from_s2_dir(s2_dir)
     # Prefer new focus exports when available; fall back to older nib_resampled.
     focus = resolve_focus_hr_path(city)
@@ -129,7 +181,8 @@ def resolve_hr_path(args, s2_dir: Path, hr_gsd_m: float) -> Path | str:
         return matches[0]
     raise FileNotFoundError(
         f"No NIB HR GeoTIFF at {hr_gsd_m:g} m in {nib_dir} "
-        f"(expected *_{tag}m.tif) and no focus package for {city!r}. Pass --hr-path."
+        f"(expected *_{tag}m.tif) and no focus package for {city!r}. "
+        f"Pass --hr-path, or --allow_no_hr for production SR without GT."
     )
 
 
@@ -217,24 +270,106 @@ def _build_hr_eval_mask(
     return mask
 
 
-def load_hr_eval_shift(
-    city: str,
-    *,
-    path: Path | str | None = None,
+def _shift_from_alignment_entry(
+    entry: dict | None, *, current_df: int | None
 ) -> tuple[float, float] | None:
-    """Load ``(dy, dx)`` HR-pixel shift to apply to NIB so it matches the S2 grid."""
-    path = Path(path) if path is not None else DEFAULT_SPATIAL_ALIGNMENT_PATH
-    if not path.is_file():
-        return None
-    payload = json.loads(path.read_text())
-    cities = payload.get("cities") or {}
-    entry = cities.get(city)
+    """Extract a scaled ``(dy, dx)`` from one alignment JSON entry."""
     if not entry:
         return None
     shift = entry.get("hr_shift_hr_px") or {}
     if "dy" not in shift or "dx" not in shift:
         return None
-    return float(shift["dy"]), float(shift["dx"])
+    dy, dx = float(shift["dy"]), float(shift["dx"])
+    recorded_df = entry.get("df")
+    if current_df is not None and recorded_df not in (None, 0):
+        scale = float(current_df) / float(recorded_df)
+        dy, dx = dy * scale, dx * scale
+    return dy, dx
+
+
+def load_hr_eval_shift(
+    city: str,
+    *,
+    path: Path | str | None = None,
+    current_df: int | None = None,
+    s2_dir: Path | str | None = None,
+    parent_tile_id: str | None = None,
+) -> tuple[float, float] | None:
+    """Load ``(dy, dx)`` HR-pixel shift to apply to NIB so it matches the S2 grid.
+
+    Frozen shifts are in pixels of the alignment package's HR grid (usually
+    ``df=4``, 2.5 m). When the current run uses another ``df``, scale by
+    ``current_df / recorded_df`` so the physical offset is unchanged.
+
+    Lookup order prefers the exact revisit folder, then an explicitly recorded
+    LR512 parent patch (for nested children), then ``{city}_lr512``. This makes
+    one independently estimated correction shared by every method and size
+    derived from the same LR512 geographic parent.
+    """
+    resolved = resolve_hr_eval_alignment(
+        city,
+        path=path,
+        current_df=current_df,
+        s2_dir=s2_dir,
+        parent_tile_id=parent_tile_id,
+    )
+    return tuple(resolved["shift_yx"]) if resolved is not None else None
+
+
+def resolve_hr_eval_alignment(
+    city: str,
+    *,
+    path: Path | str | None = None,
+    current_df: int | None = None,
+    s2_dir: Path | str | None = None,
+    parent_tile_id: str | None = None,
+) -> dict | None:
+    """Resolve the shift and the exact manifest entry used for provenance."""
+    import hashlib
+
+    path = Path(path) if path is not None else DEFAULT_SPATIAL_ALIGNMENT_PATH
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text())
+    tiles = payload.get("tiles") or {}
+    cities = payload.get("cities") or {}
+    candidates: list[tuple[str, str, dict | None]] = []
+    if s2_dir is not None:
+        dirname = Path(s2_dir).name
+        candidates.extend(
+            (("tiles", dirname, tiles.get(dirname)), ("cities", dirname, cities.get(dirname)))
+        )
+        if parent_tile_id and parent_tile_id != dirname:
+            candidates.extend(
+                (
+                    ("tiles", parent_tile_id, tiles.get(parent_tile_id)),
+                    ("cities", parent_tile_id, cities.get(parent_tile_id)),
+                )
+            )
+        parent_city = _city_id_from_s2_dir(Path(s2_dir))
+        parent_lr512 = f"{parent_city}_lr512"
+        if dirname != parent_lr512:
+            candidates.extend(
+                (
+                    ("tiles", parent_lr512, tiles.get(parent_lr512)),
+                    ("cities", parent_lr512, cities.get(parent_lr512)),
+                )
+            )
+    candidates.extend((("tiles", city, tiles.get(city)), ("cities", city, cities.get(city))))
+    for namespace, key, entry in candidates:
+        shift = _shift_from_alignment_entry(entry, current_df=current_df)
+        if shift is not None:
+            return {
+                "path": str(path.resolve()),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "entry_namespace": namespace,
+                "entry_key": key,
+                "shift_yx": [float(shift[0]), float(shift[1])],
+                "recorded_df": entry.get("df"),
+                "current_df": current_df,
+                "alignment_scope": entry.get("alignment_scope"),
+            }
+    return None
 
 
 def _apply_hr_spatial_shift(
@@ -313,19 +448,58 @@ def _nib_acquisition_date(hr_path: Path | str) -> date:
     raise ValueError(f"could not parse NIB acquisition date from {hr_path}")
 
 
-def _base_frame_index_for_nib(frames: list[dict], nib_date: date) -> int:
-    """Index of the S2 revisit whose acquisition date is closest to the NIB date."""
+def _base_frame_index_for_nib(
+    frames: list[dict],
+    nib_date: date,
+    *,
+    cloud_fracs: list[float] | None = None,
+    max_cloud_frac: float = DEFAULT_MAX_BASE_CLOUD_FRAC,
+) -> int:
+    """Frozen identity frame: closest to ``nib_date`` among nearly cloud-free revisits.
+
+    Affine / radiometry freeze ``index 0``, so the caller should move this
+    frame to the front of the stack. Without ``cloud_fracs``, this is
+    date-only (legacy). If no frame is at or under ``max_cloud_frac``, pick
+    the clearest, then closest date.
+    """
     if not frames:
         raise ValueError("no frames")
-    best_idx = 0
-    best_delta = None
-    for idx, frame in enumerate(frames):
-        frame_date = _frame_acquisition_date(frame)
-        delta = abs((frame_date - nib_date).days)
-        if best_delta is None or delta < best_delta:
-            best_delta = delta
-            best_idx = idx
-    return best_idx
+    if cloud_fracs is not None and len(cloud_fracs) != len(frames):
+        raise ValueError(
+            f"cloud_fracs length {len(cloud_fracs)} != frames {len(frames)}"
+        )
+
+    def _key_date(idx: int) -> tuple:
+        frame_date = _frame_acquisition_date(frames[idx])
+        return (abs((frame_date - nib_date).days), frame_date.isoformat())
+
+    if cloud_fracs is None:
+        return min(range(len(frames)), key=_key_date)
+
+    thr = float(max_cloud_frac)
+    eligible = [
+        i
+        for i, cloud in enumerate(cloud_fracs)
+        if np.isfinite(cloud) and float(cloud) <= thr
+    ]
+    if eligible:
+        return min(eligible, key=_key_date)
+
+    def _key_clearest(idx: int) -> tuple:
+        cloud = float(cloud_fracs[idx])
+        if not np.isfinite(cloud):
+            cloud = 1.0
+        return (cloud, *_key_date(idx))
+
+    return min(range(len(frames)), key=_key_clearest)
+
+
+def _index_to_front(index: int, n: int) -> list[int]:
+    """Permutation that moves ``index`` to 0 and keeps other order."""
+    idx = int(index)
+    if idx < 0 or idx >= n:
+        raise IndexError(f"index {idx} out of range for n={n}")
+    return [idx] + [i for i in range(n) if i != idx]
 
 
 def _harmonize_hr_histogram_match(hr_np: np.ndarray, base_lr: np.ndarray) -> np.ndarray:
@@ -442,6 +616,100 @@ def _warp_rgb_to_grid(hr_path: Path | str, dst_crs, dst_transform, dst_h: int, d
     return np.transpose(rgb, (1, 2, 0)), cover > 0, src_crs, src_bounds
 
 
+def _window_fits(crop_win, width: int, height: int) -> bool:
+    if crop_win is None:
+        return False
+    col = float(crop_win.col_off)
+    row = float(crop_win.row_off)
+    win_w = float(crop_win.width)
+    win_h = float(crop_win.height)
+    return (
+        col >= 0.0
+        and row >= 0.0
+        and col + win_w <= float(width) + 1e-6
+        and row + win_h <= float(height) + 1e-6
+    )
+
+
+def _read_frame_clear(
+    s2_dir: Path,
+    frame: dict,
+    crop_win,
+    *,
+    height: int,
+    width: int,
+    dst_transform=None,
+    dst_crs=None,
+) -> np.ndarray:
+    """Load a per-frame clear map (True = use in the loss). Missing mask → all clear.
+
+    City OmniCloudMask files are already AOI-cropped and often a different
+    size than the LR512 window into the full granule. Reproject those onto
+    the LR grid. Full-granule SCL masks still use ``crop_win``.
+    """
+    from eval.s2_cloud_mask import clear_from_cloud_mask
+
+    name = frame.get("cloud_mask")
+    if not name:
+        return np.ones((height, width), dtype=bool)
+    path = s2_dir / str(name)
+    if not path.is_file():
+        return np.ones((height, width), dtype=bool)
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.warp import reproject
+
+    with rasterio.open(path) as src:
+        if int(src.width) == int(width) and int(src.height) == int(height):
+            cloudy = src.read(1)
+        elif _window_fits(crop_win, src.width, src.height):
+            cloudy = src.read(1, window=crop_win)
+        elif dst_transform is not None and src.crs is not None:
+            cloudy = np.zeros((height, width), dtype=np.uint8)
+            reproject(
+                source=src.read(1),
+                destination=cloudy,
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs or src.crs,
+                resampling=Resampling.nearest,
+            )
+        else:
+            raise ValueError(
+                f"{path}: cloud mask {src.width}×{src.height} cannot map onto "
+                f"LR {(height, width)} (need a fitting crop window or dest transform)"
+            )
+    clear = clear_from_cloud_mask(cloudy)
+    if clear.shape != (height, width):
+        raise ValueError(
+            f"{path}: cloud mask crop {clear.shape} != LR {(height, width)}"
+        )
+    return np.ascontiguousarray(clear, dtype=bool)
+
+
+MIN_STATS_PIXELS = 256
+
+
+def standardize_rgb_masked(
+    rgb: torch.Tensor, stats_mask: np.ndarray | None
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
+    """Standardize ``[H,W,3]`` RGB with per-channel stats from ``stats_mask`` pixels.
+
+    Clouds and nodata would otherwise skew the mean/std that set each frame's
+    loss scale. Falls back to all pixels when too few are selected. Returns
+    ``(standardized, mean[1,1,3], std[1,1,3], used_mask)``.
+    """
+    if stats_mask is None or int(np.count_nonzero(stats_mask)) < MIN_STATS_PIXELS:
+        standardized, mean, std = get_and_standardize_image(rgb)
+        return standardized, mean, std, False
+    mask = torch.as_tensor(stats_mask, dtype=torch.bool, device=rgb.device)
+    pixels = rgb[mask]
+    mean = pixels.mean(dim=0).view(1, 1, -1)
+    std = torch.clamp(pixels.std(dim=0), min=1e-8).view(1, 1, -1)
+    return (rgb - mean) / std, mean, std, True
+
+
 class S2NIBRevisitDataset(Dataset):
     """Windowed S2 RGB revisits with NIB HR warped onto the S2 AOI grid."""
 
@@ -466,9 +734,21 @@ class S2NIBRevisitDataset(Dataset):
         self.num_samples = len(frames)
         self.frames = frames
 
-        aoi = self.meta.get("aoi_window")
+        aoi = dict(self.meta.get("aoi_window") or {})
         if not aoi:
             raise ValueError(f"{meta_path} missing aoi_window")
+        west = int(getattr(args, "halo_lr_px_west", 0) or 0)
+        north = int(getattr(args, "halo_lr_px_north", 0) or 0)
+        if west or north:
+            from eval.halo_consistency import expand_aoi_for_halo
+
+            aoi = expand_aoi_for_halo(aoi, west_px=west, north_px=north)
+            print(
+                f"halo AOI expand west={west} north={north} → "
+                f"col_off={aoi['col_off']} row_off={aoi['row_off']} "
+                f"{aoi['width']}×{aoi['height']}",
+                flush=True,
+            )
         aoi_win = _window_from_meta(aoi)
         df = max(1, int(getattr(args, "df", 4) or 4))
         native_gsd = float(getattr(args, "s2_native_gsd_m", self.meta.get("resolution_m") or 10.0))
@@ -485,6 +765,7 @@ class S2NIBRevisitDataset(Dataset):
         self.hr_gsd_m = hr_gsd
         self.native_gsd_m = native_gsd
         self.hr_path = resolve_hr_path(args, self.s2_dir, hr_gsd)
+        self.has_hr_gt = self.hr_path is not None
 
         first_path = self.s2_dir / frames[0]["path"]
         with rasterio.open(first_path) as src:
@@ -498,24 +779,33 @@ class S2NIBRevisitDataset(Dataset):
         hr_h = lr_h * df
         hr_w = lr_w * df
         hr_transform = Affine(hr_gsd, 0.0, aoi_transform.c, 0.0, -hr_gsd, aoi_transform.f)
-        hr_rgb, hr_cover, nib_crs, nib_bounds = _warp_rgb_to_grid(
-            self.hr_path, s2_crs, hr_transform, hr_h, hr_w
-        )
-        cover_lr = hr_cover.reshape(lr_h, df, lr_w, df).all(axis=(1, 3))
         s2_valid = np.any(stack0 > 0, axis=0)
-        valid_lr = cover_lr & s2_valid
-        self.use_fixed_nib_crop = _is_nib_focus_location(self.meta, self.s2_dir)
-        if self.use_fixed_nib_crop:
-            # Keep the full AOI rectangle; evaluate only where HR GT exists.
-            r0, r1, c0, c1 = 0, lr_h, 0, lr_w
+        nib_crs = None
+        nib_bounds = None
+        if self.has_hr_gt:
+            hr_rgb, hr_cover, nib_crs, nib_bounds = _warp_rgb_to_grid(
+                self.hr_path, s2_crs, hr_transform, hr_h, hr_w
+            )
+            cover_lr = hr_cover.reshape(lr_h, df, lr_w, df).all(axis=(1, 3))
+            valid_lr = cover_lr & s2_valid
+            self.use_fixed_nib_crop = _is_nib_focus_location(self.meta, self.s2_dir)
+            if self.use_fixed_nib_crop:
+                # Keep the full AOI rectangle; evaluate only where HR GT exists.
+                r0, r1, c0, c1 = 0, lr_h, 0, lr_w
+            else:
+                r0, r1, c0, c1 = _largest_ones_rectangle(valid_lr)
+                lr_size = int(getattr(args, "lr_size", 0) or 0)
+                crop_h, crop_w = r1 - r0, c1 - c0
+                if lr_size > 0:
+                    side = min(lr_size, crop_h, crop_w)
+                    cr0, cr1, cc0, cc1 = _center_crop_hw(crop_h, crop_w, side, side)
+                    r0, r1, c0, c1 = r0 + cr0, r0 + cr1, c0 + cc0, c0 + cc1
         else:
-            r0, r1, c0, c1 = _largest_ones_rectangle(valid_lr)
-            lr_size = int(getattr(args, "lr_size", 0) or 0)
-            crop_h, crop_w = r1 - r0, c1 - c0
-            if lr_size > 0:
-                side = min(lr_size, crop_h, crop_w)
-                cr0, cr1, cc0, cc1 = _center_crop_hw(crop_h, crop_w, side, side)
-                r0, r1, c0, c1 = r0 + cr0, r0 + cr1, c0 + cc0, c0 + cc1
+            # Production: keep the full requested AOI; no NIB crop.
+            hr_rgb = np.zeros((hr_h, hr_w, 3), dtype=np.float32)
+            hr_cover = np.zeros((hr_h, hr_w), dtype=bool)
+            self.use_fixed_nib_crop = False
+            r0, r1, c0, c1 = 0, lr_h, 0, lr_w
 
         self.lr_row0 = int(aoi["row_off"]) + r0
         self.lr_col0 = int(aoi["col_off"]) + c0
@@ -538,12 +828,17 @@ class S2NIBRevisitDataset(Dataset):
         )
 
         hr_rgb = hr_rgb[r0 * df : r1 * df, c0 * df : c1 * df]
-        hr_cover_crop = hr_cover[r0 * df : r1 * df, c0 * df : c1 * df]
-        s2_valid_crop = s2_valid[r0:r1, c0:c1]
-        eval_mask = _build_hr_eval_mask(hr_cover_crop, s2_valid_crop, hr_rgb, df)
+        if self.has_hr_gt:
+            hr_cover_crop = hr_cover[r0 * df : r1 * df, c0 * df : c1 * df]
+            s2_valid_crop = s2_valid[r0:r1, c0:c1]
+            eval_mask = _build_hr_eval_mask(hr_cover_crop, s2_valid_crop, hr_rgb, df)
+        else:
+            eval_mask = np.zeros(hr_rgb.shape[:2], dtype=bool)
         self.hr_eval_mask = torch.as_tensor(eval_mask, dtype=torch.bool, device=self.device)
-        self.hr_valid_fraction = float(eval_mask.mean())
-        self.use_masked_eval = bool(self.use_fixed_nib_crop and self.hr_valid_fraction < 0.999)
+        self.hr_valid_fraction = float(eval_mask.mean()) if eval_mask.size else 0.0
+        self.use_masked_eval = bool(
+            self.has_hr_gt and self.use_fixed_nib_crop and self.hr_valid_fraction < 0.999
+        )
         self.original_hr = torch.as_tensor(np.ascontiguousarray(hr_rgb), dtype=torch.float32, device=self.device)
 
         rgb_frames = []
@@ -551,6 +846,12 @@ class S2NIBRevisitDataset(Dataset):
         means = []
         stds = []
         standardized = []
+        clear_frames = []
+        stats_mode = str(getattr(args, "lr_stats_pixels", "clear") or "clear").lower()
+        if stats_mode not in {"clear", "all"}:
+            raise ValueError(f"--lr_stats_pixels must be clear or all, got {stats_mode!r}")
+        self.lr_stats_pixels = stats_mode
+        self.lr_stats_masked = []
         for frame in frames:
             path = self.s2_dir / frame["path"]
             with rasterio.open(path) as src:
@@ -558,32 +859,113 @@ class S2NIBRevisitDataset(Dataset):
             refl = _l2a_to_reflectance(stack)
             rgb = np.transpose(refl[0:3], (1, 2, 0))
             nir = refl[3] if refl.shape[0] >= 4 else None
+            clear = _read_frame_clear(
+                self.s2_dir,
+                frame,
+                crop_win,
+                height=self.lr_height,
+                width=self.lr_width,
+                dst_transform=self.lr_transform,
+                dst_crs=self.crs,
+            )
             rgb_t = torch.as_tensor(np.ascontiguousarray(rgb), dtype=torch.float32, device=self.device)
-            rgb_std, mean, std = get_and_standardize_image(rgb_t)
+            stats_mask = None
+            if stats_mode == "clear":
+                stats_mask = clear & np.any(rgb > 0, axis=-1)
+            rgb_std, mean, std, used_mask = standardize_rgb_masked(rgb_t, stats_mask)
+            self.lr_stats_masked.append(bool(used_mask))
             rgb_frames.append(rgb_t)
             standardized.append(rgb_std)
             means.append(mean)
             stds.append(std)
             if nir is not None:
                 nir_frames.append(torch.as_tensor(np.ascontiguousarray(nir), dtype=torch.float32, device=self.device))
+            clear_frames.append(clear)
 
         self.lr_rgb = torch.stack(rgb_frames, dim=0)
         self.lr_standardized = torch.stack(standardized, dim=0)
         self.lr_mean = torch.stack(means, dim=0)
         self.lr_std = torch.stack(stds, dim=0)
         self.lr_nir = torch.stack(nir_frames, dim=0) if nir_frames else None
+        self.lr_clear = torch.as_tensor(
+            np.stack(clear_frames, axis=0), dtype=torch.bool, device=self.device
+        )
+        self.lr_clear_fractions = [float(c.mean()) for c in clear_frames]
+        self.has_lr_cloud_mask = any(bool(fr.get("cloud_mask")) for fr in frames)
 
-        try:
-            nib_date = _nib_acquisition_date(self.hr_path)
-        except ValueError:
-            # Focus exports often lack acquisition date in the filename; use meta.
-            center = self.meta.get("nib_acquisition_date") or self.meta.get("center_date")
-            if not center:
-                raise
-            nib_date = _parse_iso_date(str(center))
+        center = self.meta.get("nib_acquisition_date") or self.meta.get("center_date")
+        if self.has_hr_gt:
+            try:
+                nib_date = _nib_acquisition_date(self.hr_path)
+            except ValueError:
+                # Focus exports often lack acquisition date in the filename; use meta.
+                if not center:
+                    raise
+                nib_date = _parse_iso_date(str(center))
+        else:
+            if center:
+                nib_date = _parse_iso_date(str(center))
+            else:
+                nib_date = _frame_acquisition_date(frames[0])
         self.nib_acquisition_date = nib_date.isoformat()
-        self.base_frame_index = _base_frame_index_for_nib(frames, nib_date)
-        base_frame = frames[self.base_frame_index]
+        cloud_fracs = [1.0 - frac for frac in self.lr_clear_fractions]
+        max_base_cloud = float(
+            getattr(args, "max_base_cloud_frac", DEFAULT_MAX_BASE_CLOUD_FRAC)
+        )
+        force_raw = getattr(args, "force_base_date", None)
+        self.force_base_date = None
+        if force_raw:
+            target = _parse_iso_date(str(force_raw))
+            hits = [
+                i
+                for i in range(len(frames))
+                if _frame_acquisition_date(frames[i]) == target
+            ]
+            if hits:
+                def _force_key(idx: int) -> tuple:
+                    cloud = float(cloud_fracs[idx])
+                    if not np.isfinite(cloud):
+                        cloud = 1.0
+                    return (cloud, idx)
+
+                base_src = min(hits, key=_force_key)
+                self.force_base_date = target.isoformat()
+            else:
+                print(
+                    f"WARN: --force_base_date {target.isoformat()} not in stack; "
+                    "using the default identity rule"
+                )
+                base_src = _base_frame_index_for_nib(
+                    frames,
+                    nib_date,
+                    cloud_fracs=cloud_fracs,
+                    max_cloud_frac=max_base_cloud,
+                )
+        else:
+            base_src = _base_frame_index_for_nib(
+                frames,
+                nib_date,
+                cloud_fracs=cloud_fracs,
+                max_cloud_frac=max_base_cloud,
+            )
+        if base_src != 0:
+            order = _index_to_front(base_src, len(frames))
+            frames = [frames[i] for i in order]
+            self.frames = frames
+            self.lr_rgb = self.lr_rgb[order]
+            self.lr_standardized = self.lr_standardized[order]
+            self.lr_mean = self.lr_mean[order]
+            self.lr_std = self.lr_std[order]
+            self.lr_clear = self.lr_clear[order]
+            self.lr_clear_fractions = [self.lr_clear_fractions[i] for i in order]
+            self.lr_stats_masked = [self.lr_stats_masked[i] for i in order]
+            if self.lr_nir is not None:
+                self.lr_nir = self.lr_nir[order]
+            cloud_fracs = [cloud_fracs[i] for i in order]
+        self.base_frame_index = 0
+        self.base_frame_cloud_frac = float(cloud_fracs[0])
+        self.max_base_cloud_frac = max_base_cloud
+        base_frame = frames[0]
         base_frame_date = _frame_acquisition_date(base_frame).isoformat()
         self.base_frame_date = base_frame_date
 
@@ -593,7 +975,7 @@ class S2NIBRevisitDataset(Dataset):
         # the S2 revisit closest in date to the NIB acquisition. Training uses all
         # LR revisits; eval compares denormalized model output against harmonized HR.
         self.hr_harmonize_method = None
-        if not bool(getattr(args, "no_hr_harmonize", False)):
+        if self.has_hr_gt and not bool(getattr(args, "no_hr_harmonize", False)):
             try:
                 base_lr = self.lr_rgb[self.base_frame_index].detach().cpu().numpy()
                 hr_np = self.original_hr.detach().cpu().numpy()  # [hr_h, hr_w, 3]
@@ -610,10 +992,19 @@ class S2NIBRevisitDataset(Dataset):
         # Spatial alignment (NIB -> S2 grid) for evaluation GT only.
         # Estimated offline via S2-bilinear vs NIB (eval/spatial_alignment.json).
         self.hr_spatial_shift = None
-        if not bool(getattr(args, "no_hr_spatial_align", False)):
+        self.hr_spatial_alignment = None
+        if self.has_hr_gt and not bool(getattr(args, "no_hr_spatial_align", False)):
             city = _city_id_from_s2_dir(self.s2_dir)
             align_path = getattr(args, "spatial_alignment_path", None)
-            shift = load_hr_eval_shift(city, path=align_path)
+            patch_grid = self.meta.get("patch_grid") or {}
+            alignment = resolve_hr_eval_alignment(
+                city,
+                path=align_path,
+                current_df=int(df),
+                s2_dir=self.s2_dir,
+                parent_tile_id=patch_grid.get("parent_tile_id"),
+            )
+            shift = tuple(alignment["shift_yx"]) if alignment is not None else None
             if shift is not None:
                 dy, dx = shift
                 hr_np = self.original_hr.detach().cpu().numpy()
@@ -630,6 +1021,7 @@ class S2NIBRevisitDataset(Dataset):
                     self.use_fixed_nib_crop and self.hr_valid_fraction < 0.999
                 )
                 self.hr_spatial_shift = {"dy": dy, "dx": dx}
+                self.hr_spatial_alignment = alignment
 
         scale_factor = float(getattr(args, "scale_factor", df) or df)
         self.scale_factor = scale_factor
@@ -646,29 +1038,47 @@ class S2NIBRevisitDataset(Dataset):
             device=self.device,
         )
 
-        print(
-            f"S2/NIB dataset {self.s2_dir}: {self.num_samples} frames, "
-            f"LR {self.lr_height}×{self.lr_width} @ {native_gsd:g} m, "
-            f"HR {tuple(self.original_hr.shape[:2])} @ {hr_gsd:g} m "
-            f"(df={df}), S2 {self.crs} ← NIB {nib_crs}, "
-            f"HR file {Path(str(self.hr_path)).name}, "
-            f"harmonize base frame {self.base_frame_index} "
-            f"({base_frame['path']}, {base_frame_date}, "
-            f"Δ{abs((_parse_iso_date(base_frame_date) - nib_date).days)}d from NIB {nib_date.isoformat()}), "
-            f"HR eval mask {self.hr_valid_fraction * 100:.1f}% valid"
-            + (" (masked eval)" if self.use_masked_eval else "")
-            + (
-                f", HR spatial shift dy={self.hr_spatial_shift['dy']:+.2f} "
-                f"dx={self.hr_spatial_shift['dx']:+.2f} px"
-                if self.hr_spatial_shift
-                else ""
-            )
-        )
-        if str(s2_crs) != str(nib_crs):
+        if self.has_hr_gt:
             print(
-                f"  CRS caveat: NIB {nib_crs} warped onto S2 {s2_crs}; "
-                f"NIB bounds {tuple(nib_bounds)} vs S2 AOI window "
-                f"row/col {self.lr_row0},{self.lr_col0} size {self.lr_height}×{self.lr_width}."
+                f"S2/NIB dataset {self.s2_dir}: {self.num_samples} frames, "
+                f"LR {self.lr_height}×{self.lr_width} @ {native_gsd:g} m, "
+                f"HR {tuple(self.original_hr.shape[:2])} @ {hr_gsd:g} m "
+                f"(df={df}), S2 {self.crs} ← NIB {nib_crs}, "
+                f"HR file {Path(str(self.hr_path)).name}, "
+                f"harmonize base frame {self.base_frame_index} "
+                f"({base_frame['path']}, {base_frame_date}, "
+                f"Δ{abs((_parse_iso_date(base_frame_date) - nib_date).days)}d from NIB {nib_date.isoformat()}), "
+                f"HR eval mask {self.hr_valid_fraction * 100:.1f}% valid"
+                + (" (masked eval)" if self.use_masked_eval else "")
+                + (
+                    f", HR spatial shift dy={self.hr_spatial_shift['dy']:+.2f} "
+                    f"dx={self.hr_spatial_shift['dx']:+.2f} px"
+                    if self.hr_spatial_shift
+                    else ""
+                )
+            )
+            if nib_crs is not None and str(s2_crs) != str(nib_crs):
+                print(
+                    f"  CRS caveat: NIB {nib_crs} warped onto S2 {s2_crs}; "
+                    f"NIB bounds {tuple(nib_bounds)} vs S2 AOI window "
+                    f"row/col {self.lr_row0},{self.lr_col0} size {self.lr_height}×{self.lr_width}."
+                )
+        else:
+            print(
+                f"S2 production dataset {self.s2_dir}: {self.num_samples} frames, "
+                f"LR {self.lr_height}×{self.lr_width} @ {native_gsd:g} m, "
+                f"SR grid {tuple(self.original_hr.shape[:2])} @ {hr_gsd:g} m "
+                f"(df={df}), CRS {self.crs}, no HR GT (--allow_no_hr), "
+                f"base frame 0 ({base_frame['path']}, {base_frame_date}, "
+                f"cloud {self.base_frame_cloud_frac * 100:.1f}%, "
+                f"Δ{abs((_parse_iso_date(base_frame_date) - nib_date).days)}d "
+                f"from {nib_date.isoformat()})"
+                + (
+                    f", LR cloud mask mean clear "
+                    f"{float(np.mean(self.lr_clear_fractions)) * 100:.1f}%"
+                    if self.has_lr_cloud_mask
+                    else ""
+                )
             )
 
     def __len__(self) -> int:
@@ -688,6 +1098,10 @@ class S2NIBRevisitDataset(Dataset):
     def get_hr_eval_mask(self) -> torch.Tensor:
         """HR-resolution boolean mask where harmonized GT is valid."""
         return self.hr_eval_mask
+
+    def get_lr_clear(self) -> torch.Tensor:
+        """Per-frame LR clear map ``[N,H,W]`` (True = not cloudy)."""
+        return self.lr_clear
 
     def get_geo_meta(self) -> dict:
         """CRS + affine transforms for QGIS / GeoTIFF export."""

@@ -31,17 +31,13 @@ dependencies = [
     "torchmetrics>=0.11.0,<2.0.0",
     "numpy>=1.20.0,<3.0.0",
     "matplotlib>=3.5.0",
-    "seaborn>=0.12.0",
     "tqdm>=4.65.0",
-    "pandas>=1.5.0",
     "lpips>=0.1.4",
     "einops>=0.6.0",
-    "wandb>=0.15.0",
     "pillow>=9.0.0",
     "scikit-image>=0.19.0",
-    "scikit-learn>=1.0.0",
-    "kornia>=0.7.0,<0.8.0",
     "opencv-python>=4.5.0",
+    "nvidia-ml-py>=13.610.43",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +46,14 @@ dev = [
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+s2 = [
+    "mgrs>=1.5.0",
+    "pyproj>=3.5.0",
+    "rasterio>=1.3.0",
+    "pystac-client>=0.7.0",
+    "planetary-computer>=1.0.0",
+    "omnicloudmask>=1.0.0",
 ]
 
 [project.urls]
@@ -62,8 +66,8 @@ Issues = "https://github.com/sjyhne/scalef/issues"
 scalef-train = "optimize:main"
 
 [tool.setuptools]
-packages = ["models", "input_projections"]
-py-modules = ["optimize", "optimize_against_folder", "optimizers", "data", "losses", "utils", "viz_utils", "create_data_from_single_image", "extract_force_datacube"]
+packages = ["models", "input_projections", "eval"]
+py-modules = ["optimize", "optimizers", "data", "losses", "utils", "s2_dataset"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml"]

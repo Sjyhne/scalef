@@ -168,9 +168,12 @@ class EarlyStopState:
     val_ids: list[int]
     patience: int
     min_iters: int
+    spatial_masks: list[torch.Tensor] | None = None
+    clear_masks: list[torch.Tensor] | None = None
     metric: str = "lpips"
     min_delta: float = 0.0
     max_regression: float = 0.0
+    ema_alpha: float = 0.0
     holdout_block: int = 8
     best_score: float = field(default_factory=lambda: float("nan"))
     best_iter: int = 0
@@ -180,13 +183,18 @@ class EarlyStopState:
     stopped_iter: int | None = None
     score_history_iters: list[int] = field(default_factory=list)
     score_history: list[float] = field(default_factory=list)
+    score_ema_history: list[float] = field(default_factory=list)
     holdout_mse_history: list[float] = field(default_factory=list)
+    score_ema: float = field(default_factory=lambda: float("nan"))
     restored: bool = False
 
     def __post_init__(self) -> None:
         self.metric = str(self.metric).lower().strip()
         if self.metric not in EARLY_STOP_METRICS:
             raise ValueError(f"Unknown early_stop_metric {self.metric!r}")
+        self.ema_alpha = float(self.ema_alpha)
+        if not (0.0 <= self.ema_alpha <= 1.0):
+            raise ValueError(f"ema_alpha must be in [0, 1], got {self.ema_alpha}")
         if metric_higher_is_better(self.metric):
             if not math.isfinite(self.best_score):
                 self.best_score = float("-inf")
@@ -201,6 +209,19 @@ class EarlyStopState:
     def best_val(self) -> float:
         """Backward-compatible alias for the tracked stop score."""
         return self.best_score
+
+    def _smooth(self, score: float) -> float:
+        """EMA of the stop metric; alpha=0 → raw score (no smoothing)."""
+        raw = float(score)
+        a = float(self.ema_alpha)
+        if a <= 0.0:
+            self.score_ema = raw
+            return raw
+        if not math.isfinite(self.score_ema):
+            self.score_ema = raw
+        else:
+            self.score_ema = a * raw + (1.0 - a) * float(self.score_ema)
+        return float(self.score_ema)
 
     def _is_improvement(self, score: float) -> bool:
         delta = float(self.min_delta)
@@ -219,17 +240,20 @@ class EarlyStopState:
         """Record stop metric; return True if training should stop.
 
         Checks before ``min_iters`` are logged but do not update the best
-        checkpoint or consume patience (warmup).
+        checkpoint or consume patience (warmup). When ``ema_alpha>0``,
+        patience / regression / best-score use the EMA of ``score``.
         """
+        decision = self._smooth(score)
         self.score_history_iters.append(int(iteration))
         self.score_history.append(float(score))
+        self.score_ema_history.append(float(decision))
         if holdout_mse is not None:
             self.holdout_mse_history.append(float(holdout_mse))
         if iteration < int(self.min_iters):
             return False
-        improved = self._is_improvement(score)
+        improved = self._is_improvement(decision)
         if improved:
-            self.best_score = float(score)
+            self.best_score = float(decision)
             self.best_iter = int(iteration)
             self.best_state = {
                 k: v.detach().cpu().clone() for k, v in model.state_dict().items()
@@ -240,9 +264,9 @@ class EarlyStopState:
             reg = float(self.max_regression)
             if reg > 0.0 and math.isfinite(self.best_score):
                 if metric_higher_is_better(self.metric):
-                    regressed = score < (self.best_score - reg)
+                    regressed = decision < (self.best_score - reg)
                 else:
-                    regressed = score > (self.best_score + reg)
+                    regressed = decision > (self.best_score + reg)
                 if regressed:
                     self.checks_without_improve = max(
                         self.checks_without_improve, int(self.patience)
@@ -276,6 +300,7 @@ class EarlyStopState:
             "holdout_block": int(self.holdout_block),
             "best_score": best,
             "max_regression": float(self.max_regression),
+            "ema_alpha": float(self.ema_alpha),
             "best_val_loss": best if self.metric == "holdout_mse" else None,
             "best_val_iter": self.best_iter,
             "stopped": self.stopped,
@@ -285,6 +310,7 @@ class EarlyStopState:
             "score_history": {
                 "iterations": list(self.score_history_iters),
                 "values": list(self.score_history),
+                "ema": list(self.score_ema_history),
             },
             "val_history": {
                 "iterations": list(self.score_history_iters),
@@ -301,9 +327,19 @@ def default_early_stop_regression(metric: str) -> float:
     if name == "mae":
         return 0.002
     if name == "holdout_mse":
-        return 0.0
+        # Absolute on typical Charbonnier holdout (~0.3–0.4). Zero previously
+        # left fused-k to die only on patience, which is noisy under tile sampling.
+        return 0.01
     if name == "psnr":
         return 0.05
+    return 0.0
+
+
+def default_early_stop_ema(metric: str) -> float:
+    """Default EMA alpha for the stop score (0 = raw / no smoothing)."""
+    name = str(metric).lower().strip()
+    if name == "holdout_mse":
+        return 0.4
     return 0.0
 
 
@@ -319,6 +355,7 @@ def init_early_stop_state(
     min_delta: float = 0.0,
     metric: str = "lpips",
     max_regression: float | None = None,
+    ema_alpha: float | None = None,
     device: torch.device | str | None = None,
 ) -> EarlyStopState | None:
     """Build masks + early-stop tracker, or ``None`` if holdout is disabled."""
@@ -338,6 +375,8 @@ def init_early_stop_state(
     metric = str(metric).lower().strip()
     if max_regression is None:
         max_regression = default_early_stop_regression(metric)
+    if ema_alpha is None:
+        ema_alpha = default_early_stop_ema(metric)
     auto = int(holdout_block) <= 0
     print(
         f"spatial holdout: {held:.1f}% of each frame's LR pixels held out in "
@@ -345,18 +384,46 @@ def init_early_stop_state(
         f"{' (auto)' if auto else ''} "
         f"(frac={frac:.3f}, stop_metric={metric}, "
         f"patience={int(patience)}, min_iters={int(min_iters)}, "
-        f"min_delta={float(min_delta):g}, max_regression={float(max_regression):g})"
+        f"min_delta={float(min_delta):g}, max_regression={float(max_regression):g}, "
+        f"ema_alpha={float(ema_alpha):g})"
     )
     return EarlyStopState(
         train_masks=masks,
+        spatial_masks=list(masks),
         val_ids=val_frame_ids(num_frames),
         patience=int(patience),
         min_iters=int(min_iters),
         min_delta=float(min_delta),
         metric=metric,
         max_regression=float(max_regression),
+        ema_alpha=float(ema_alpha),
         holdout_block=block,
     )
+
+
+def apply_lr_clear_masks(state: EarlyStopState, clear: torch.Tensor) -> EarlyStopState:
+    """AND per-frame SCL/cloud clear maps into train masks; keep spatial holdout for val."""
+    from eval.s2_cloud_mask import apply_clear_to_holdout_masks, frame_clear_fractions
+
+    spatial = list(state.spatial_masks or state.train_masks)
+    anded = apply_clear_to_holdout_masks(spatial, clear)
+    clear_list = [
+        clear[i].to(dtype=torch.bool).view(1, *clear.shape[1:], 1)
+        if clear[i].ndim == 2
+        else clear[i].to(dtype=torch.bool)
+        for i in range(int(clear.shape[0]))
+    ]
+    fracs = frame_clear_fractions(clear)
+    mean_clear = float(sum(fracs) / max(len(fracs), 1))
+    print(
+        f"LR cloud mask: mean clear {mean_clear * 100:.1f}% of pixels "
+        f"(min {min(fracs) * 100:.1f}%, {sum(1 for f in fracs if f < 0.05)} frame(s) <5% clear)",
+        flush=True,
+    )
+    state.spatial_masks = spatial
+    state.train_masks = anded
+    state.clear_masks = clear_list
+    return state
 
 
 def holdout_block_origins(
@@ -492,9 +559,16 @@ def compute_holdout_val_loss(
         pad = int(raw_pad)
     for f in state.val_ids:
         target = dataset.get_lr_sample_hwc(int(f)).to(device)
-        train_mask = state.train_masks[int(f)].to(device)
-        mask_hw = train_mask.reshape(train_mask.shape[-3], train_mask.shape[-2])
-        origins = holdout_block_origins(train_mask, block)
+        spatial = (state.spatial_masks or state.train_masks)[int(f)].to(device)
+        spatial_hw = spatial.reshape(spatial.shape[-3], spatial.shape[-2])
+        if state.clear_masks is not None:
+            clear_f = state.clear_masks[int(f)].to(device)
+            if clear_f.ndim >= 3:
+                clear_f = clear_f.reshape(clear_f.shape[-3], clear_f.shape[-2])
+            val_hw = (~spatial_hw) & clear_f.bool()
+        else:
+            val_hw = ~spatial_hw
+        origins = holdout_block_origins(spatial, block)
         if not origins:
             continue
         for key, group in _group_padded_origins(origins, lr_h, lr_w, pad).items():
@@ -504,7 +578,7 @@ def compute_holdout_val_loss(
                 coords_b, target_b, hold_b, inner_r, inner_c = _stack_lr_hr_patches(
                     hr_coords,
                     target,
-                    mask_hw,
+                    ~val_hw,
                     chunk,
                     df,
                     lr_h=lr_h,

@@ -23,6 +23,12 @@ python scripts/fetch_s2_revisits.py \
 
 The current training method, rejected alternatives, and open questions are in [docs/METHOD.md](docs/METHOD.md).
 
+## External evaluation
+
+The optional [MuS2 integration](docs/MUS2.md) provides a manifest-driven,
+dry-run-by-default adapter and the benchmark's aligned single-band evaluation.
+It does not download the approximately 3.1 GB dataset automatically.
+
 ## Notes
 
 - Large datasets and experiment outputs are gitignored.
