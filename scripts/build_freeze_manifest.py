@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Freeze manifest (v3) for the focused-revision results.
+"""Freeze manifest (v4) for the focused-revision results.
 
 Records the source snapshot (git commit, dirty diff, and a tarball of all Python sources),
 per-run arguments and metric hashes for every run namespace used in the revision, the
 alignment registry and evaluation manifest, all ``paper/results`` JSONs, and the
-generated/static LaTeX tables and figures. The v2 manifest is referenced as the parent.
+generated/static LaTeX tables and figures. The previous manifest is referenced as the parent.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ RESULTS = ROOT / "paper" / "results"
 OVERLEAF = ROOT / "ScaleF_Overleaf"
 
 RUN_NAMESPACES = {
+    "confirmatory_v5_boa": "single_samples/*/confirmatory_v5_boa/*/metrics.json",
     "confirmatory_v3_halo": "single_samples/*/confirmatory_v3_halo/*/metrics.json",
     "fourier_diag_v1": "single_samples/*/fourier_diag_v1/*/metrics.json",
     "update_eff_v1": "single_samples/*/update_eff_v1/*/metrics.json",
@@ -40,7 +41,9 @@ PROVENANCE = (
     "eval/confirmatory_eval_manifest.v2.json",
     "eval/spatial_alignment.json",
     "data/s2_revisits/aois.json",
+    "data/s2_revisits/processing_baselines.json",
 )
+DIRECT_RUN_MANIFESTS = ("paper/results/run_manifests/confirmatory_v5_boa__run_manifest.json",)
 SOURCE_DIRS = ("", "models", "eval", "scripts", "training", "production")
 
 
@@ -136,9 +139,10 @@ def software() -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, default=RESULTS / "MANIFEST.v3.json")
-    ap.add_argument("--snapshot", type=Path, default=RESULTS / "source_snapshot_v3.tar.gz")
-    ap.add_argument("--diff", type=Path, default=RESULTS / "source_snapshot_v3.diff")
+    ap.add_argument("--out", type=Path, default=RESULTS / "MANIFEST.v4.json")
+    ap.add_argument("--parent", type=Path, default=RESULTS / "MANIFEST.v3.json")
+    ap.add_argument("--snapshot", type=Path, default=RESULTS / "source_snapshot_v4.tar.gz")
+    ap.add_argument("--diff", type=Path, default=RESULTS / "source_snapshot_v4.diff")
     args = ap.parse_args()
 
     srcs = source_files()
@@ -154,20 +158,23 @@ def main() -> None:
             dst = run_manifests_dir / manifest_rel.replace("single_samples/sweep_results/", "").replace("/", "__")
             dst.write_bytes(src.read_bytes())
             copied.append({"source": manifest_rel, **file_record(dst)})
+    copied.extend({"source": m, **file_record(ROOT / m)} for m in DIRECT_RUN_MANIFESTS if (ROOT / m).is_file())
 
     skip = {args.out.name, args.snapshot.name, args.diff.name}
-    results = [file_record(p) for p in sorted(RESULTS.glob("*.json")) if p.name not in skip]
+    results = [file_record(p) for p in sorted(RESULTS.glob("*.json"))
+               if p.name not in skip and not p.name.startswith("MANIFEST")]
     tex_assets = sorted(
-        [*OVERLEAF.glob("generated/tables/*.tex"), *OVERLEAF.glob("generated/figures/*"), *OVERLEAF.glob("tables/*.tex")]
+        [*OVERLEAF.glob("generated/tables/*.tex"), *OVERLEAF.glob("generated/figures/*"), *OVERLEAF.glob("tables/*.tex"),
+         *OVERLEAF.glob("tables/layout/*.tex")]
     )
     runs = {ns: run_records(pat) for ns, pat in RUN_NAMESPACES.items()}
 
     manifest = {
-        "schema_version": 3,
+        "schema_version": 4,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "purpose": "Freeze for the ScaleF focused-revision diagnostics and regenerated tables/figures.",
         "generator": "scripts/build_freeze_manifest.py",
-        "parent_manifest": file_record(RESULTS / "MANIFEST.json"),
+        "parent_manifest": file_record(args.parent),
         "git": {"code": git_state(ROOT), "paper": git_state(OVERLEAF)},
         "software": software(),
         "source_snapshot": {
