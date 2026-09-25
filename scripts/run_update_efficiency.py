@@ -53,6 +53,7 @@ def command(site: str, seed: int, arm: str, iters: int) -> tuple[str, list[str],
 
 
 def main() -> None:
+    global NAMESPACE, LOG_DIR
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--sites", nargs="+", default=["asker", "bergen", "rana"])
@@ -60,12 +61,17 @@ def main() -> None:
     ap.add_argument("--arms", nargs="+", default=list(ARMS))
     ap.add_argument("--iters", type=int, default=5000)
     ap.add_argument("--skip-existing", action="store_true")
+    ap.add_argument("--namespace", default=NAMESPACE)
+    ap.add_argument("--s2-boa-offset", choices=("keep", "remove"), default="keep")
     args = ap.parse_args()
+    NAMESPACE, LOG_DIR = args.namespace, ROOT / "logs" / args.namespace
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(args.gpu)}
     todo = [(s, seed, a) for s in args.sites for seed in args.seeds for a in args.arms]
     for n, (site, seed, arm) in enumerate(todo, 1):
         run, cmd, metrics = command(site, seed, arm, args.iters)
+        if args.s2_boa_offset != "keep":
+            cmd += ["--s2_boa_offset", args.s2_boa_offset]
         if args.skip_existing and metrics.is_file():
             print(f"[{n}/{len(todo)}] {run}: skipped_existing", flush=True)
             continue

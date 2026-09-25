@@ -3213,10 +3213,6 @@ def main():
         # Convert aligned tensors back to numpy for visualization
         pred_aligned_np = pred_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
         bilinear_aligned_np = bilinear_aligned.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        
-        # Ensure aligned images are in valid range
-        pred_aligned_np = np.clip(pred_aligned_np, 0, 1)
-        bilinear_aligned_np = np.clip(bilinear_aligned_np, 0, 1)
 
         query_gsd_metrics = None
         if has_hr:

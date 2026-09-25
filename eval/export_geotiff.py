@@ -8,13 +8,13 @@ from typing import Any
 import numpy as np
 
 
-def _as_hwc01(arr: np.ndarray) -> np.ndarray:
+def _as_hwc01(arr: np.ndarray, lo: float = 0.0) -> np.ndarray:
     x = np.asarray(arr, dtype=np.float32)
     if x.ndim == 3 and x.shape[0] in (1, 3) and x.shape[-1] not in (1, 3):
         x = np.transpose(x, (1, 2, 0))
     if x.ndim != 3 or x.shape[-1] not in (1, 3, 4):
         raise ValueError(f"Expected HWC image, got shape {tuple(x.shape)}")
-    return np.clip(x, 0.0, 1.0)
+    return np.clip(x, lo, 1.0)
 
 
 def write_rgb_geotiff(
@@ -24,14 +24,19 @@ def write_rgb_geotiff(
     transform,
     crs,
     nodata: float | None = 0.0,
+    lo: float = 0.0,
 ) -> Path:
-    """Write float32 reflectance RGB GeoTIFF (CHW) with CRS + affine."""
+    """Write float32 reflectance RGB GeoTIFF (CHW) with CRS + affine.
+
+    ``lo`` is the lower clip bound; it is ``-offset`` for layers that already have the
+    BOA_ADD_OFFSET removed, so dark pixels keep the negative values that were scored.
+    """
     import rasterio
     from rasterio.crs import CRS
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    rgb = _as_hwc01(rgb_hwc)
+    rgb = _as_hwc01(rgb_hwc, lo=lo)
     h, w, c = rgb.shape
     data = np.transpose(rgb, (2, 0, 1))
     profile = {
@@ -85,6 +90,7 @@ def export_qgis_layers(
             "Missing CRS/hr_transform on dataset; cannot write georeferenced GeoTIFFs."
         )
 
+    lo = -float(getattr(dataset, "eval_reflectance_offset", 0.0) or 0.0) if dataset is not None else 0.0
     written: dict[str, str] = {}
     pairs: list[tuple[str, np.ndarray]] = [
         ("sr_pred.tif", sr_pred_hwc),
@@ -93,11 +99,11 @@ def export_qgis_layers(
     if hr_gt_hwc is not None:
         pairs.insert(0, ("hr_gt.tif", hr_gt_hwc))
     for name, arr in pairs:
-        p = write_rgb_geotiff(out_dir / name, arr, transform=hr_transform, crs=crs)
+        p = write_rgb_geotiff(out_dir / name, arr, transform=hr_transform, crs=crs, lo=lo)
         written[name] = str(p)
 
     if lr_hwc is not None and lr_transform is not None:
-        p = write_rgb_geotiff(out_dir / "s2_lr.tif", lr_hwc, transform=lr_transform, crs=crs)
+        p = write_rgb_geotiff(out_dir / "s2_lr.tif", lr_hwc, transform=lr_transform, crs=crs, lo=lo)
         written["s2_lr.tif"] = str(p)
 
     notes = (

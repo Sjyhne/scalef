@@ -41,6 +41,14 @@ ANCHOR_SCALE = 10.0
 EVAL_MANIFEST = ROOT / "eval/confirmatory_eval_manifest.v2.json"
 RUN_MANIFEST = ROOT / "single_samples/sweep_results" / NAMESPACE / "run_manifest.json"
 LOG_DIR = ROOT / "logs" / NAMESPACE
+RUN_MANIFEST_DEFAULT = RUN_MANIFEST
+
+
+def set_namespace(name: str) -> None:
+    global NAMESPACE, RUN_MANIFEST, LOG_DIR
+    NAMESPACE = name
+    RUN_MANIFEST = ROOT / "single_samples/sweep_results" / name / "run_manifest.json"
+    LOG_DIR = ROOT / "logs" / name
 
 COMMON = [
     "--df", "4", "--scale_factor", "4",
@@ -111,9 +119,17 @@ def main() -> None:
     ap.add_argument("--manifest", type=Path, default=RUN_MANIFEST)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-existing", action="store_true")
+    ap.add_argument("--namespace", default=NAMESPACE)
+    ap.add_argument("--s2-boa-offset", choices=("keep", "remove"), default="keep")
     args = ap.parse_args()
+    set_namespace(args.namespace)
+    if args.manifest == RUN_MANIFEST_DEFAULT:
+        args.manifest = RUN_MANIFEST
 
     todo = jobs(args.sites, args.sides, args.seeds, args.iters, args.encodings)
+    if args.s2_boa_offset != "keep":
+        for j in todo:
+            j["command"] += ["--s2_boa_offset", args.s2_boa_offset]
     run_manifest = args.manifest
     run_manifest.parent.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)

@@ -371,9 +371,12 @@ def write_figures(rows: list[dict]) -> list[str]:
 
 
 def main() -> None:
+    global NAMESPACE
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--no-figures", action="store_true")
+    ap.add_argument("--namespace", default=NAMESPACE)
     args = ap.parse_args()
+    NAMESPACE = args.namespace
     audit = json.loads((ROOT / "paper" / "results" / "hash_encoding_audit.json").read_text())
     rows = [summarise_run(r, audit) for r in load_runs()]
     expected = sum(len(SITES) * len(SEEDS) * (4 if s == 64 else 5) for s in SIDES)

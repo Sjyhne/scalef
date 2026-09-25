@@ -41,6 +41,14 @@ def load(arm: str, site: str, seed: int) -> dict | None:
     return json.loads(p.read_text()) if p.is_file() else None
 
 
+def linear_at_time(times, values, t):
+    """Linear interpolation between logged checkpoints (None beyond the curve)."""
+    for (t0, v0), (t1, v1) in zip(zip(times, values), zip(times[1:], values[1:])):
+        if t0 <= t <= t1:
+            return v0 + (v1 - v0) * (t - t0) / max(t1 - t0, 1e-12)
+    return None
+
+
 def interp_at_time(times, values, t):
     """Value of the last checkpoint reached by elapsed time t (step function)."""
     best = None
@@ -81,6 +89,14 @@ def s(xs):
 
 
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--full-namespace", default=ARMS["full"][0])
+    ap.add_argument("--k4-namespace", default=ARMS["k4"][0])
+    cli = ap.parse_args()
+    ARMS["full"] = (cli.full_namespace, ARMS["full"][1])
+    for arm in ("k4", "k4_nohalo"):
+        ARMS[arm] = (cli.k4_namespace, ARMS[arm][1])
     rows = [summarise(a, site, seed, m) for a in ARMS for site in SITES for seed in SEEDS
             if (m := load(a, site, seed)) is not None]
     by = {(r["arm"], r["site"], r["seed"]): r for r in rows}
@@ -95,6 +111,16 @@ def main() -> None:
             "lpips": interp_at_time(f["curve"]["elapsed_step_seconds"], f["curve"]["model_lpips"], t),
             "psnr": interp_at_time(f["curve"]["elapsed_step_seconds"], f["curve"]["psnr"], t),
         }
+        ft, fl = f["curve"]["elapsed_step_seconds"], f["curve"]["model_lpips"]
+        k4_lp = r["fixed"]["5000"]["lpips"]
+        # Timing sensitivity: full-field step time 10% faster/slower than measured.
+        if r["arm"] != "full":
+            sens = {}
+            for scale in (0.9, 1.0, 1.1):
+                for mode, fn in (("step", interp_at_time), ("linear", linear_at_time)):
+                    v = fn([x * scale for x in ft], fl, t)
+                    sens[f"step_{scale:g}x_{mode}"] = None if v is None else v - k4_lp
+            r["matched_time_sensitivity"] = sens
 
     agg = {}
     for arm in ARMS:
@@ -117,6 +143,14 @@ def main() -> None:
             if arm != "full":
                 e["full_lpips_at_k4_5000_time"] = s([r.get("full_at_same_time", {}).get("lpips") for r in rs])
             agg[f"{arm}/seed{seed}"] = e
+
+    paired = {}
+    for arm in ("k4", "k4_nohalo"):
+        rs = [r for r in rows if r["arm"] == arm and "matched_time_sensitivity" in r]
+        for key in (rs[0]["matched_time_sensitivity"] if rs else {}):
+            d = [r["matched_time_sensitivity"][key] for r in rs if r["matched_time_sensitivity"][key] is not None]
+            paired[f"{arm}/{key}"] = {"mean": statistics.fmean(d), "min": min(d), "max": max(d),
+                                      "n_full_worse": sum(x > 0 for x in d), "n": len(d)}
 
     pm = lambda x, nd=3: "--" if x is None else f"{x['mean']:.{nd}f}$\\pm${x['sd']:.{nd}f}"  # noqa: E731
     lines = [
@@ -177,10 +211,12 @@ def main() -> None:
         "protocol": {"iters": 5000, "early_termination": False, "lr_stop_rule": FROZEN_STOP,
                      "hr_oracle_note": "retrospective only; deployment selection is LR-only",
                      "timing": "CUDA-event step time, evaluation excluded"},
-        "n_runs": len(rows), "aggregate": agg, "runs": rows,
+        "n_runs": len(rows), "aggregate": agg, "matched_time_paired": paired, "runs": rows,
         "outputs": [str(TABLE.relative_to(ROOT)), f"{FIG.relative_to(ROOT)}.pdf"],
     }, indent=1))
     print(f"{len(rows)} runs -> {OUT_JSON.relative_to(ROOT)}")
+    for k, v in paired.items():
+        print("paired full@t - k4@5k", k, {kk: round(vv, 4) if isinstance(vv, float) else vv for kk, vv in v.items()})
     for k, e in agg.items():
         print(k, f"s/step {e['avg_step_s']['mean']:.4f}", "lp1k", pm(e["lpips_1000"]), "lp5k", pm(e["lpips_5000"]),
               "stop", e["lr_stop_iter"]["values"], "sel", pm(e["lpips_lr_selected"]),
