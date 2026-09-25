@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Freeze manifest (v5) for the focused-revision results.
+"""Freeze manifest (v6) for the focused-revision results.
 
 Records the source snapshot (git commit, dirty diff, and a tarball of all Python sources),
 per-run arguments and metric hashes for every run namespace used in the revision, the
-alignment registry and evaluation manifest, all ``paper/results`` JSONs, and the
+alignment registry and evaluation manifest, all ``paper/results`` JSONs, the frame-screening
+inputs (full-window OmniCloudMask maps, rebuilt stack metadata, replacement frames), and the
 generated/static LaTeX tables and figures. The previous manifest is referenced as the parent.
 """
 
@@ -33,6 +34,9 @@ RUN_NAMESPACES = {
     "figure_float_v5": "single_samples/*/figure_float_v5/*/metrics.json",
     "figure_float_v5b": "single_samples/*/figure_float_v5b/*/metrics.json",
     "nested_floatval_v3": "single_samples/*/sample/prod_*floatval_v3_*/metrics.json",
+    "confirmatory_v6_masks": "single_samples/*/confirmatory_v6_masks/*/metrics.json",
+    "confirmatory_v6_screen": "single_samples/*/confirmatory_v6_screen/*/metrics.json",
+    "confirmatory_v6_repl": "single_samples/*/confirmatory_v6_repl/*/metrics.json",
 }
 RUN_MANIFESTS = (
     "single_samples/sweep_results/confirmatory_v3_halo/run_manifest.json",
@@ -50,7 +54,17 @@ PROVENANCE = (
     "data/s2_revisits/aois.json",
     "data/s2_revisits/processing_baselines.json",
 )
-DIRECT_RUN_MANIFESTS = ("paper/results/run_manifests/confirmatory_v5_boa__run_manifest.json",)
+DIRECT_RUN_MANIFESTS = (
+    "paper/results/run_manifests/confirmatory_v5_boa__run_manifest.json",
+    "paper/results/run_manifests/confirmatory_v6_masks__run_manifest.json",
+    "paper/results/run_manifests/confirmatory_v6_screen__run_manifest.json",
+    "paper/results/run_manifests/confirmatory_v6_repl__run_manifest.json",
+)
+SCREENING_INPUTS = (
+    "data/s2_revisits/*_lr512/*_lr512_ocm.tif",
+    "data/s2_revisits_screen_v1/*_lr512/meta.json",
+    "data/s2_revisits_screen_v1/*_lr512/r*.tif",
+)
 SOURCE_DIRS = ("", "models", "eval", "scripts", "training", "production")
 
 
@@ -146,10 +160,10 @@ def software() -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, default=RESULTS / "MANIFEST.v5.json")
-    ap.add_argument("--parent", type=Path, default=RESULTS / "MANIFEST.v4.json")
-    ap.add_argument("--snapshot", type=Path, default=RESULTS / "source_snapshot_v5.tar.gz")
-    ap.add_argument("--diff", type=Path, default=RESULTS / "source_snapshot_v5.diff")
+    ap.add_argument("--out", type=Path, default=RESULTS / "MANIFEST.v6.json")
+    ap.add_argument("--parent", type=Path, default=RESULTS / "MANIFEST.v5.json")
+    ap.add_argument("--snapshot", type=Path, default=RESULTS / "source_snapshot_v6.tar.gz")
+    ap.add_argument("--diff", type=Path, default=RESULTS / "source_snapshot_v6.diff")
     args = ap.parse_args()
 
     srcs = source_files()
@@ -168,8 +182,10 @@ def main() -> None:
     copied.extend({"source": m, **file_record(ROOT / m)} for m in DIRECT_RUN_MANIFESTS if (ROOT / m).is_file())
 
     skip = {args.out.name, args.snapshot.name, args.diff.name}
-    results = [file_record(p) for p in sorted([*RESULTS.glob("*.json"), *RESULTS.glob("ssim_failure/*")])
+    results = [file_record(p) for p in sorted([*RESULTS.glob("*.json"), *RESULTS.glob("ssim_failure/*"),
+                                               *RESULTS.glob("screened_refits/*.json")])
                if p.name not in skip and not p.name.startswith("MANIFEST")]
+    screening = [file_record(p) for pat in SCREENING_INPUTS for p in sorted(ROOT.glob(pat)) if p.is_file()]
     tex_assets = sorted(
         [*OVERLEAF.glob("generated/tables/*.tex"), *OVERLEAF.glob("generated/figures/*"), *OVERLEAF.glob("tables/*.tex"),
          *OVERLEAF.glob("tables/layout/*.tex")]
@@ -177,7 +193,7 @@ def main() -> None:
     runs = {ns: run_records(pat) for ns, pat in RUN_NAMESPACES.items()}
 
     manifest = {
-        "schema_version": 5,
+        "schema_version": 6,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "purpose": "Freeze for the ScaleF focused-revision diagnostics and regenerated tables/figures.",
         "generator": "scripts/build_freeze_manifest.py",
@@ -193,6 +209,7 @@ def main() -> None:
         "run_manifests": copied,
         "runs": {ns: {"n": len(r), "records": r} for ns, r in runs.items()},
         "results": results,
+        "screening_inputs": screening,
         "latex_assets": [
             {"path": str(p.relative_to(OVERLEAF)), "sha256": sha256_file(p), "bytes": p.stat().st_size}
             for p in tex_assets if p.is_file()
@@ -200,7 +217,8 @@ def main() -> None:
     }
     args.out.write_text(json.dumps(manifest, indent=1, sort_keys=False) + "\n")
     print(f"{rel(args.out)} sha256={sha256_file(args.out)}")
-    print({ns: len(r) for ns, r in runs.items()}, "results", len(results), "assets", len(manifest["latex_assets"]))
+    print({ns: len(r) for ns, r in runs.items()}, "results", len(results), "screening", len(screening),
+          "assets", len(manifest["latex_assets"]))
 
 
 if __name__ == "__main__":

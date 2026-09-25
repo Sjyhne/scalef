@@ -651,6 +651,35 @@ def _window_fits(crop_win, width: int, height: int) -> bool:
     )
 
 
+def apply_frame_screen(frames: list[dict], s2_dir: Path, screen_path: Path) -> tuple[list[dict], dict]:
+    """Drop screened frames and point ``cloud_mask`` at the screen's full-window class maps.
+
+    The screen is keyed by stack directory name. Frames not listed keep their order; a stack
+    missing from the screen is an error so a typo cannot silently fall back to the old masks.
+    """
+    screen = json.loads(screen_path.read_text())
+    entry = screen.get("stacks", {}).get(s2_dir.name)
+    if entry is None:
+        raise ValueError(f"{screen_path}: no entry for stack {s2_dir.name}")
+    excluded = set(entry.get("exclude", []))
+    suffix = entry.get("cloud_mask_suffix")
+    kept = []
+    for fr in frames:
+        if fr["path"] in excluded:
+            continue
+        fr = dict(fr)
+        if suffix:
+            mask = f"{Path(fr['path']).stem}{suffix}.tif"
+            if not (s2_dir / mask).is_file():
+                raise FileNotFoundError(f"{s2_dir / mask} missing for --frame_screen")
+            fr["cloud_mask"] = mask
+        kept.append(fr)
+    if not kept:
+        raise ValueError(f"{screen_path}: every frame of {s2_dir.name} is excluded")
+    return kept, {"path": str(screen_path), "rule": screen.get("rule"), "excluded": sorted(excluded),
+                  "cloud_mask_suffix": suffix, "n_kept": len(kept)}
+
+
 def _read_frame_clear(
     s2_dir: Path,
     frame: dict,
@@ -745,6 +774,9 @@ class S2NIBRevisitDataset(Dataset):
         frames = list(self.meta.get("frames") or [])
         if not frames:
             raise ValueError(f"{meta_path} has no frames")
+        self.frame_screen = None
+        if getattr(args, "frame_screen", None):
+            frames, self.frame_screen = apply_frame_screen(frames, self.s2_dir, Path(args.frame_screen))
 
         requested = int(getattr(args, "num_samples", 0) or 0)
         if requested > 0:

@@ -2336,6 +2336,15 @@ def get_argparser() -> argparse.ArgumentParser:
             "date falls back to the default identity rule."
         ),
     )
+    parser.add_argument(
+        "--frame_screen",
+        type=str,
+        default=None,
+        help=(
+            "JSON from scripts/build_frame_screen.py: per stack, frames to exclude and a cloud-mask "
+            "suffix whose class maps (non-zero = masked) replace the stack's cloud_mask files."
+        ),
+    )
     parser.add_argument("--no_direct_param_T", action="store_true", help="Disable direct parameter T (default: use_direct_param_T=True)")
     parser.add_argument(
         "--freeze_affines",
@@ -3455,6 +3464,7 @@ def main():
             'max_cloud_frac': getattr(train_data, 'max_base_cloud_frac', None),
             'force_date': getattr(train_data, 'force_base_date', None),
         },
+        'frame_screen': getattr(train_data, 'frame_screen', None),
         'holdout_block': int(
             (holdout_state.holdout_block if holdout_state is not None else 0)
             or getattr(args, "holdout_block", 0)
