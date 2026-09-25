@@ -186,6 +186,26 @@ def resolve_hr_path(args, s2_dir: Path, hr_gsd_m: float) -> Path | str | None:
     )
 
 
+PROCESSING_BASELINES = Path(__file__).resolve().parent / "data" / "s2_revisits" / "processing_baselines.json"
+_BASELINE_CACHE: dict[str, str | None] | None = None
+
+
+def boa_add_offset(stac_id: str) -> float:
+    """Reflectance offset to subtract for one L2A product (0.1 for processing baseline >= 04.00).
+
+    Baselines from 04.00 onward store DN = 10000 * reflectance + 1000 (BOA_ADD_OFFSET = -1000).
+    """
+    global _BASELINE_CACHE
+    if _BASELINE_CACHE is None:
+        if not PROCESSING_BASELINES.is_file():
+            raise FileNotFoundError(f"{PROCESSING_BASELINES} missing; run scripts/cache_processing_baselines.py")
+        _BASELINE_CACHE = json.loads(PROCESSING_BASELINES.read_text())
+    if stac_id not in _BASELINE_CACHE or _BASELINE_CACHE[stac_id] is None:
+        raise KeyError(f"no processing baseline cached for {stac_id}; run scripts/cache_processing_baselines.py")
+    major, minor = (int(p) for p in str(_BASELINE_CACHE[stac_id]).split("."))
+    return 0.1 if (major, minor) >= (4, 0) else 0.0
+
+
 def _l2a_to_reflectance(stack: np.ndarray) -> np.ndarray:
     arr = stack.astype(np.float32)
     peak = float(np.nanmax(arr)) if arr.size else 0.0
@@ -852,10 +872,16 @@ class S2NIBRevisitDataset(Dataset):
             raise ValueError(f"--lr_stats_pixels must be clear or all, got {stats_mode!r}")
         self.lr_stats_pixels = stats_mode
         self.lr_stats_masked = []
+        boa_mode = str(getattr(args, "s2_boa_offset", "keep") or "keep")
+        if boa_mode not in {"keep", "remove"}:
+            raise ValueError(f"--s2_boa_offset must be keep or remove, got {boa_mode!r}")
+        self.s2_boa_offset_mode = boa_mode
+        self.s2_boa_offsets = []
         for frame in frames:
             path = self.s2_dir / frame["path"]
             with rasterio.open(path) as src:
                 stack = src.read(window=crop_win)
+            self.s2_boa_offsets.append(boa_add_offset(frame["stac_id"]) if boa_mode == "remove" else 0.0)
             refl = _l2a_to_reflectance(stack)
             rgb = np.transpose(refl[0:3], (1, 2, 0))
             nir = refl[3] if refl.shape[0] >= 4 else None
@@ -962,6 +988,10 @@ class S2NIBRevisitDataset(Dataset):
             if self.lr_nir is not None:
                 self.lr_nir = self.lr_nir[order]
             cloud_fracs = [cloud_fracs[i] for i in order]
+            self.s2_boa_offsets = [self.s2_boa_offsets[i] for i in order]
+        # Fitting sees DN/10000: per-frame standardization cancels a constant offset, and a
+        # post-hoc subtraction keeps masks and dark (DN < 1000) pixels distinct from no-data zeros.
+        self.eval_reflectance_offset = float(self.s2_boa_offsets[0]) if self.s2_boa_offsets else 0.0
         self.base_frame_index = 0
         self.base_frame_cloud_frac = float(cloud_fracs[0])
         self.max_base_cloud_frac = max_base_cloud

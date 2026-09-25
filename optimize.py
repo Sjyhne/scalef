@@ -557,6 +557,12 @@ def _compute_full_frame_metrics(
     }
 
 
+def _subtract_offset_keep_nodata(img: np.ndarray, offset: float) -> np.ndarray:
+    """Shift reflectance by ``-offset`` while leaving no-data pixels (all bands zero) at zero."""
+    nodata = np.all(img == 0, axis=-1, keepdims=True)
+    return np.where(nodata, 0.0, img - offset).astype(img.dtype, copy=False)
+
+
 def eval_hr_metrics(
     model,
     test_loader,
@@ -606,6 +612,11 @@ def eval_hr_metrics(
             .to(device)
         )
 
+        refl_offset = float(getattr(test_loader, "eval_reflectance_offset", 0.0) or 0.0)
+        if refl_offset:
+            pred_tensor = pred_tensor - refl_offset
+            gt_tensor = gt_tensor - refl_offset
+            bilinear_tensor = bilinear_tensor - refl_offset
         eval_mask_hw = _get_hr_eval_mask(test_loader)
         lpips_fn = get_lpips_model(device)
         metrics = _compute_full_frame_metrics(
@@ -621,7 +632,7 @@ def eval_hr_metrics(
             sub_mask = eval_mask_hw[ys, xs] if eval_mask_hw is not None else None
             reference = getattr(test_loader, "sub_reference", None)
             if reference is not None:
-                sub_gt = reference["gt_bchw"].to(device)
+                sub_gt = reference["gt_bchw"].to(device) - refl_offset
                 sub_mask = reference["mask_hw"]
             sub = _compute_full_frame_metrics(
                 pred_tensor[..., ys, xs],
@@ -2178,6 +2189,18 @@ def get_argparser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--s2_boa_offset",
+        choices=["keep", "remove"],
+        default="keep",
+        help=(
+            "Sentinel-2 L2A BOA_ADD_OFFSET. Fitting always uses DN/10000 (per-frame "
+            "standardization cancels a constant offset). 'remove' subtracts the base frame's "
+            "offset (0.1 for processing baseline >= 04.00, data/s2_revisits/processing_baselines.json) "
+            "from prediction, bilinear, LR, and reference before scoring and GeoTIFF export; "
+            "'keep' reproduces the frozen runs."
+        ),
+    )
+    parser.add_argument(
         "--halo_sr",
         type=str,
         default=None,
@@ -2659,6 +2682,8 @@ def get_argparser() -> argparse.ArgumentParser:
 
 def main():
     args = get_argparser().parse_args()
+    if getattr(args, "halo_sr", None) and getattr(args, "s2_boa_offset", "keep") == "remove":
+        raise SystemExit("--halo_sr neighbours are fitted in the DN/10000 scale; use --s2_boa_offset keep")
     if getattr(args, "halo_sr", None):
         west, north = parse_halo_sides(getattr(args, "halo_sides", "west"), int(getattr(args, "halo_lr_px", 32) or 0))
         args.halo_lr_px_west = west
@@ -3119,6 +3144,14 @@ def main():
             gt_np = np.clip(gt_np, 0, 1)
         else:
             gt_np = None
+        refl_offset = float(getattr(train_data, "eval_reflectance_offset", 0.0) or 0.0)
+        if refl_offset:
+            print(f"Removing BOA_ADD_OFFSET ({refl_offset:g}) from prediction, bilinear, LR, and reference")
+            pred_np = pred_np - refl_offset
+            lr_original = _subtract_offset_keep_nodata(lr_original, refl_offset)
+            lr_bilinear = lr_bilinear - refl_offset
+            if gt_np is not None:
+                gt_np = _subtract_offset_keep_nodata(gt_np, refl_offset)
 
         # Convert numpy arrays to torch tensors for alignment and color matching
         pred_tensor = torch.from_numpy(pred_np).unsqueeze(0).permute(0, 3, 1, 2).to(device)  # [1, C, H, W]
@@ -3409,6 +3442,8 @@ def main():
             'clear_fractions': list(getattr(train_data, "lr_clear_fractions", []) or []),
             'stats_pixels': getattr(train_data, "lr_stats_pixels", None),
             'stats_masked': list(getattr(train_data, "lr_stats_masked", []) or []),
+            'boa_offset_mode': getattr(train_data, "s2_boa_offset_mode", None),
+            'boa_offsets': list(getattr(train_data, "s2_boa_offsets", []) or []),
         },
         'halo': {
             'sr': getattr(args, "halo_sr", None),

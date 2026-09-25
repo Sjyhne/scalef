@@ -201,3 +201,12 @@ def test_force_base_date_picks_requested_day_despite_cloud():
         if _frame_acquisition_date(fr) == date(2025, 7, 12)
     ]
     assert hits == [0]
+
+
+def test_boa_add_offset_removed_only_when_requested():
+    import s2_dataset
+
+    dn = np.array([[[0, 1000, 1500, 11000]]], dtype=np.uint16)
+    np.testing.assert_allclose(s2_dataset._l2a_to_reflectance(dn)[0, 0], [0.0, 0.1, 0.15, 1.1], atol=1e-6)
+    assert s2_dataset.boa_add_offset("S2B_MSIL2A_20240514T104619_R051_T32VNM_20240514T134424") == 0.1
+    assert s2_dataset.boa_add_offset("S2B_MSIL2A_20180702T104019_R008_T34WEC_20201011T111449") == 0.0

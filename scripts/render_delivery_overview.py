@@ -34,6 +34,13 @@ def _read_overview(path: Path, side: int) -> np.ndarray:
     return np.transpose(arr, (1, 2, 0)).astype(np.float32)
 
 
+def _remove_offset(rgb: np.ndarray, offset: float) -> np.ndarray:
+    if not offset:
+        return rgb
+    data = np.any(rgb > 0, axis=2, keepdims=True)
+    return np.where(data, rgb - offset, 0.0).astype(np.float32)
+
+
 def render(
     before_path: Path,
     after_path: Path,
@@ -44,9 +51,10 @@ def render(
     after_title: str = "ICM identity + date-cut ramp",
     figure_title: str | None = None,
     tone: str = "highlight",
+    reflectance_offset: float = 0.0,
 ) -> None:
-    before = _read_overview(before_path, side)
-    after = _read_overview(after_path, side)
+    before = _remove_offset(_read_overview(before_path, side), reflectance_offset)
+    after = _remove_offset(_read_overview(after_path, side), reflectance_offset)
     if tone == "stretch":
         values = np.concatenate(
             [
@@ -88,6 +96,8 @@ def main() -> None:
     parser.add_argument("--after-title", default="ICM identity + date-cut ramp")
     parser.add_argument("--figure-title", default=None)
     parser.add_argument("--tone", choices=("highlight", "stretch"), default="highlight")
+    parser.add_argument("--reflectance-offset", type=float, default=0.0,
+                        help="BOA_ADD_OFFSET carried by the mosaics (0.1 for processing baseline >= 04.00).")
     args = parser.parse_args()
     render(
         args.before,
@@ -98,6 +108,7 @@ def main() -> None:
         after_title=args.after_title,
         figure_title=args.figure_title,
         tone=args.tone,
+        reflectance_offset=args.reflectance_offset,
     )
 
 

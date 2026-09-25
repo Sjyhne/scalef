@@ -45,6 +45,53 @@ def masked_psnr(pred_bchw: torch.Tensor, gt_bchw: torch.Tensor, mask_hw: torch.T
     return float(10.0 * np.log10(1.0 / mse))
 
 
+def _fill_invalid(pred_bchw: torch.Tensor, gt_bchw: torch.Tensor, mask_hw: torch.Tensor) -> torch.Tensor:
+    return torch.where(mask_hw.to(pred_bchw.device).bool()[None, None], pred_bchw, gt_bchw)
+
+
+def masked_lpips(lpips_fn, pred_bchw: torch.Tensor, gt_bchw: torch.Tensor, mask_hw: torch.Tensor) -> float:
+    """LPIPS averaged over feature cells whose footprint lies entirely inside ``mask_hw``.
+
+    Invalid prediction pixels are replaced by the reference so both inputs agree there; each
+    layer's distance map is then averaged over fully valid cells only. With an all-valid mask
+    this equals ``lpips_fn(pred, gt)``.
+    """
+    mask = mask_hw.to(pred_bchw.device).float()[None, None]
+    pred = _fill_invalid(pred_bchw, gt_bchw, mask_hw)
+    in0, in1 = pred * 2 - 1, gt_bchw * 2 - 1
+    if getattr(lpips_fn, "version", "0.1") == "0.1":
+        in0, in1 = lpips_fn.scaling_layer(in0), lpips_fn.scaling_layer(in1)
+    outs0, outs1 = lpips_fn.net.forward(in0), lpips_fn.net.forward(in1)
+    total = 0.0
+    for kk in range(lpips_fn.L):
+        f0 = outs0[kk] / (torch.sqrt((outs0[kk] ** 2).sum(dim=1, keepdim=True)) + 1e-10)
+        f1 = outs1[kk] / (torch.sqrt((outs1[kk] ** 2).sum(dim=1, keepdim=True)) + 1e-10)
+        dist = lpips_fn.lins[kk]((f0 - f1) ** 2)
+        weight = (F.interpolate(mask, size=dist.shape[-2:], mode="area") > 0.999).to(dist.dtype)
+        if float(weight.sum()) == 0.0:
+            raise ValueError(f"no fully valid LPIPS cells at layer {kk}")
+        total += float((dist * weight).sum() / weight.sum())
+    return total
+
+
+def masked_ssim(pred_bchw: torch.Tensor, gt_bchw: torch.Tensor, mask_hw: torch.Tensor,
+                *, kernel_size: int = 11) -> float:
+    """SSIM averaged over pixels whose ``kernel_size`` window lies entirely inside ``mask_hw``.
+
+    Pixels outside the image are treated as valid, so an all-valid mask reproduces the
+    unmasked SSIM exactly.
+    """
+    pred = _fill_invalid(pred_bchw, gt_bchw, mask_hw)
+    _, ssim_map = ssim(pred, gt_bchw, data_range=1.0, kernel_size=kernel_size, return_full_image=True)
+    invalid = (~mask_hw.bool()).float().to(ssim_map.device)[None, None]
+    r = kernel_size // 2
+    touched = F.max_pool2d(F.pad(invalid, (r, r, r, r), value=0.0), kernel_size, stride=1)[0, 0] > 0
+    keep = ~touched
+    if not bool(keep.any()):
+        raise ValueError("no fully valid SSIM windows")
+    return float(ssim_map.mean(dim=1)[0][keep].mean())
+
+
 def _center_crop_bchw(
     *tensors: torch.Tensor, max_side: int
 ) -> tuple[torch.Tensor, ...]:
@@ -71,8 +118,9 @@ def compute_masked_image_metrics(
 ) -> dict[str, Any]:
     """Full-frame metrics restricted to ``mask_hw`` (H, W bool).
 
-    PSNR/MAE/MSE use the full mask. SSIM/LPIPS use the mask bbox, center-cropped
-    to ``perceptual_max_side`` when the bbox is larger (avoids OOM on huge AOIs).
+    PSNR/MAE/MSE use the full mask. SSIM/LPIPS are computed on the mask bbox, center-cropped
+    to ``perceptual_max_side`` when the bbox is larger (avoids OOM on huge AOIs), and averaged
+    only over windows/feature cells that lie entirely inside the mask.
     """
     mask_hw = mask_hw.to(device)
     valid_fraction = float(mask_hw.float().mean().item())
@@ -88,14 +136,17 @@ def compute_masked_image_metrics(
     pred_crop = pred_bchw[:, :, y0:y1, x0:x1]
     gt_crop = gt_bchw[:, :, y0:y1, x0:x1]
     bil_crop = bilinear_bchw[:, :, y0:y1, x0:x1]
-    pred_crop, gt_crop, bil_crop = _center_crop_bchw(
-        pred_crop, gt_crop, bil_crop, max_side=perceptual_max_side
+    mask_crop = mask_hw[y0:y1, x0:x1][None, None]
+    pred_crop, gt_crop, bil_crop, mask_crop = _center_crop_bchw(
+        pred_crop, gt_crop, bil_crop, mask_crop, max_side=perceptual_max_side
     )
+    mask_crop = mask_crop[0, 0]
 
-    model_ssim = ssim(pred_crop.cpu(), gt_crop.cpu(), data_range=1.0).item()
-    bilinear_ssim = ssim(bil_crop.cpu(), gt_crop.cpu(), data_range=1.0).item()
-    model_lpips = float(lpips_fn((pred_crop * 2 - 1), (gt_crop * 2 - 1)).item())
-    bilinear_lpips = float(lpips_fn((bil_crop * 2 - 1), (gt_crop * 2 - 1)).item())
+    with torch.no_grad():
+        model_ssim = masked_ssim(pred_crop, gt_crop, mask_crop)
+        bilinear_ssim = masked_ssim(bil_crop, gt_crop, mask_crop)
+        model_lpips = masked_lpips(lpips_fn, pred_crop, gt_crop, mask_crop)
+        bilinear_lpips = masked_lpips(lpips_fn, bil_crop, gt_crop, mask_crop)
 
     return {
         "masked": True,

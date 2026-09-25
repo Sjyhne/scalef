@@ -304,6 +304,8 @@ def generate_jobs(
     validate_data: bool = True,
     namespace: str = NAMESPACE,
     gpu_list: tuple[int, ...] | None = None,
+    s2_boa_offset: str = "keep",
+    save_float_outputs: bool = False,
 ) -> list[Job]:
     if not families:
         raise ValueError("at least one family is required")
@@ -372,16 +374,13 @@ def generate_jobs(
             "--force_hr_eval",
             "--spatial_alignment_path",
             str(eval_manifest_path),
-            "--no_qgis_export",
         ]
-        _append_flags(
-            argv,
-            _merge_flags(
-                BASE_FLAGS,
-                config.flags,
-                (("--num_samples", str(requested_frames)),),
-            ),
-        )
+        if not save_float_outputs:
+            argv.append("--no_qgis_export")
+        extra = [("--num_samples", str(requested_frames))]
+        if s2_boa_offset != "keep":
+            extra.append(("--s2_boa_offset", s2_boa_offset))
+        _append_flags(argv, _merge_flags(BASE_FLAGS, config.flags, tuple(extra)))
         jobs.append(
             Job(
                 job_id=job_id,
@@ -497,6 +496,9 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip only jobs whose confirmatory_v1 metrics.json already exists.",
     )
+    parser.add_argument("--s2-boa-offset", choices=("keep", "remove"), default="keep")
+    parser.add_argument("--save-float-outputs", action="store_true",
+                        help="Export GeoTIFF predictions, reference, and bilinear (omit --no_qgis_export).")
     parser.add_argument("--eval-manifest", type=Path, default=DEFAULT_EVAL_MANIFEST)
     parser.add_argument("--manifest-out", type=Path, default=DEFAULT_RUN_MANIFEST)
     parser.add_argument(
@@ -529,6 +531,8 @@ def main() -> None:
         validate_data=True,
         namespace=str(args.namespace),
         gpu_list=tuple(args.gpu_list) if args.gpu_list else None,
+        s2_boa_offset=args.s2_boa_offset,
+        save_float_outputs=args.save_float_outputs,
     )
     out = args.manifest_out.resolve()
     _write_manifest(
