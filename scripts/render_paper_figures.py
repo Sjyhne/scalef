@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from eval.display import linear_stretch  # noqa: E402
+from eval.radiometry_audit import export_to_surface  # noqa: E402
 
 FIG_DIR = ROOT / "ScaleF_Overleaf" / "generated" / "figures"
 FIG_NAMESPACE = "confirmatory_nocut"
@@ -44,6 +45,33 @@ plt.rcParams.update({"font.family": "serif", "font.size": 8, "pdf.fonttype": 42,
 def read_rgb(path: Path) -> np.ndarray:
     with rasterio.open(path) as src:
         return np.transpose(src.read((1, 2, 3)).astype(np.float32), (1, 2, 0))
+
+
+def qgis_offset_mode(run: Path) -> str:
+    metrics = json.loads((run / "metrics.json").read_text())
+    recorded = metrics.get("lr_cloud_mask", {}).get("boa_offset_mode")
+    argument = metrics.get("provenance", {}).get("args", {}).get("s2_boa_offset")
+    if recorded is not None and argument is not None and recorded != argument:
+        raise ValueError(f"{run}: conflicting export offset provenance")
+    mode = recorded if recorded is not None else argument
+    if mode not in {"keep", "remove"}:
+        raise ValueError(f"{run}: missing export offset provenance; inspect the producing run")
+    return mode
+
+
+def read_qgis_surface(run: Path, filename: str, *, offset: float | None = None) -> np.ndarray:
+    mode = qgis_offset_mode(run)
+    if mode == "keep" and offset is None:
+        # Do not infer a radiometric domain from the image's range or colour.
+        from s2_dataset import boa_add_offset
+        metrics = json.loads((run / "metrics.json").read_text())
+        s2_dir = Path(metrics["provenance"]["args"]["s2_dir"])
+        frames = json.loads((s2_dir / "meta.json").read_text())["frames"]
+        offsets = {boa_add_offset(f["stac_id"], f.get("s2:processing_baseline")) for f in frames}
+        if len(offsets) != 1:
+            raise ValueError(f"{run}: mixed processing offsets; supply the recorded base-frame offset")
+        offset = float(next(iter(offsets)))
+    return export_to_surface(read_rgb(run / "qgis" / filename), offset_mode=mode, offset=offset or 0.0)
 
 
 def centre_crop(img: np.ndarray, frac: float) -> np.ndarray:
@@ -337,13 +365,14 @@ def render_original_superf(out: Path) -> None:
         ext_metrics = json.loads((ext_dir / "metrics.json").read_text())
         s2_dir = Path(ext_metrics["provenance"]["args"]["s2_dir"])
         s2_meta = json.loads((s2_dir / "meta.json").read_text())
-        offsets = {boa_add_offset(f["stac_id"]) for f in s2_meta["frames"]}
-        offset = float(next(iter(offsets))) if len(offsets) == 1 else 0.1
+        offsets = {boa_add_offset(f["stac_id"], f.get("s2:processing_baseline")) for f in s2_meta["frames"]}
+        if len(offsets) != 1:
+            raise ValueError(f"{ext_dir}: mixed offsets; identify the actual base frame before rendering")
+        offset = float(next(iter(offsets)))
 
-        q = ext_dir / "qgis"
-        bil = remove_offset(read_rgb(q / "s2_bilinear.tif"), offset)
-        ext = remove_offset(read_rgb(q / "sr_pred.tif"), offset)
-        gt = remove_offset(read_rgb(q / "hr_gt.tif"), offset)
+        bil = read_qgis_surface(ext_dir, "s2_bilinear.tif", offset=offset)
+        ext = read_qgis_surface(ext_dir, "sr_pred.tif", offset=offset)
+        gt = read_qgis_surface(ext_dir, "hr_gt.tif", offset=offset)
         sf_s2 = remove_offset(np.load(sf_root / "fourier_s2" / city / "superf" / "pred_hwc.npy"), offset)
         sf_s5 = remove_offset(np.load(sf_root / "fourier_s5" / city / "superf" / "pred_hwc.npy"), offset)
         sf_s10 = remove_offset(np.load(sf_root / city / "superf" / "pred_hwc.npy"), offset)
@@ -382,6 +411,7 @@ def render_original_superf(out: Path) -> None:
             "city": city,
             "window": srec["window"],
             "boa_offset_removed": offset,
+            "extension_export_offset_mode": qgis_offset_mode(ext_dir),
             "lpips_bilinear": lp_bil,
             "lpips_superf_s2": lp_s2,
             "lpips_superf_s5": lp_s5,
@@ -615,8 +645,6 @@ def render_granule_multiscale(out: Path) -> None:
 
 def render_encoding_scale(out: Path) -> None:
     """Visual comparison of Fourier (s=10) vs. multiresolution grid across LR64, LR256, and LR512 on the central 640 m crop."""
-    from PIL import Image
-
     cities = ("asker", "bergen", "trondheim")
     cols = (
         "Bilinear",
@@ -631,9 +659,6 @@ def render_encoding_scale(out: Path) -> None:
     fig, axes = plt.subplots(len(cities), len(cols), figsize=(7.2, 1.05 * len(cities)))
     meta = []
 
-    def load_png(p: Path) -> np.ndarray:
-        return np.asarray(Image.open(p).convert("RGB"), dtype=np.float32) / 255.0
-
     for r, city in enumerate(cities):
         base = ROOT / "single_samples" / city / "confirmatory_nocut"
         r64_g = base / f"confirmatory_nocut__encoding_size__lr64_hash__{city}__seed6"
@@ -643,21 +668,21 @@ def render_encoding_scale(out: Path) -> None:
         r512_g = base / f"confirmatory_nocut__encoding_size__lr512_hash__{city}__seed6"
         r512_f = base / f"confirmatory_nocut__encoding_size__lr512_fourier_s10__{city}__seed6"
 
-        bil = load_png(r64_g / "bilinear_baseline.png")
-        gt = load_png(r64_g / "ground_truth.png")
-        p64_f = load_png(r64_f / "model_output_aligned.png")
-        p64_g = load_png(r64_g / "model_output_aligned.png")
-        p256_f = centre_crop(load_png(r256_f / "model_output_aligned.png"), 64.0 / 256.0)
-        p256_g = centre_crop(load_png(r256_g / "model_output_aligned.png"), 64.0 / 256.0)
-        p512_f = centre_crop(load_png(r512_f / "model_output_aligned.png"), 64.0 / 512.0)
-        p512_g = centre_crop(load_png(r512_g / "model_output_aligned.png"), 64.0 / 512.0)
+        bil = read_qgis_surface(r64_g, "s2_bilinear.tif")
+        gt = read_qgis_surface(r64_g, "hr_gt.tif")
+        p64_f = read_qgis_surface(r64_f, "sr_pred.tif")
+        p64_g = read_qgis_surface(r64_g, "sr_pred.tif")
+        p256_f = centre_crop(read_qgis_surface(r256_f, "sr_pred.tif"), 64.0 / 256.0)
+        p256_g = centre_crop(read_qgis_surface(r256_g, "sr_pred.tif"), 64.0 / 256.0)
+        p512_f = centre_crop(read_qgis_surface(r512_f, "sr_pred.tif"), 64.0 / 512.0)
+        p512_g = centre_crop(read_qgis_surface(r512_g, "sr_pred.tif"), 64.0 / 512.0)
 
         runs = (r64_g, r64_f, r64_g, r256_f, r256_g, r512_f, r512_g, None)
         panels = (bil, p64_f, p64_g, p256_f, p256_g, p512_f, p512_g, gt)
         row_scores = {}
         for c, (img, rd) in enumerate(zip(panels, runs)):
             ax = axes[r, c]
-            ax.imshow(img, interpolation="nearest")
+            ax.imshow(linear_stretch(img), interpolation="nearest")
             ax.set_xticks([])
             ax.set_yticks([])
             for s in ax.spines.values():
@@ -686,7 +711,7 @@ def render_encoding_scale(out: Path) -> None:
     fig.savefig(out.with_suffix(".png"), dpi=220, bbox_inches="tight")
     plt.close(fig)
     out.with_suffix(".json").write_text(json.dumps({
-        "display": "shared 99.5th-percentile stretch from confirmatory_nocut encoding_size seed 6",
+        "display": "linear stretch 0-0.25 from float GeoTIFFs; offset removed exactly once using run provenance",
         "central_crop_extent_m": 640.0,
         "overlay_metric": "full-field clear-pixel LPIPS from metrics.json",
         "rows": meta,
