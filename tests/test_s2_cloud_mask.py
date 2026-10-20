@@ -22,6 +22,7 @@ from eval.s2_cloud_mask import (
     SCL_SHADOW,
     apply_clear_to_holdout_masks,
     clear_from_cloud_mask,
+    clear_train_masks,
     cloudy_from_scl,
     frame_clear_fractions,
 )
@@ -35,6 +36,17 @@ def test_cloudy_from_scl_classes():
     cloudy_sh = cloudy_from_scl(scl, include_shadow=True)
     assert cloudy_sh.tolist() == [[False, True], [True, True]]
     assert cloudy_from_scl(np.array([[SCL_CLOUD_HIGH]]))[0, 0]
+
+
+def test_clear_train_masks_keep_every_clear_pixel():
+    clear = torch.zeros(2, 4, 4, dtype=torch.bool)
+    clear[0, :2, :] = True
+    clear[1, :, 1] = True
+    masks = clear_train_masks(clear)
+    assert len(masks) == 2
+    assert masks[0].shape == (1, 4, 4, 1)
+    assert bool(masks[0][0, 0, 0, 0]) and not bool(masks[0][0, 3, 0, 0])
+    assert int(masks[1].sum()) == 4
 
 
 def test_clear_from_cloud_mask_nonzero_is_cloudy():

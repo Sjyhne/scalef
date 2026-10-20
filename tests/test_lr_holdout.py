@@ -32,6 +32,14 @@ def test_frame_masks_differ_by_seed():
     assert not torch.equal(masks[0], masks[1])
 
 
+def test_base_frame_is_fully_supervised_when_other_frames_exist():
+    masks = build_frame_masks(4, 32, 32, block=8, frac=0.25, keep_base=True)
+    assert bool(masks[0].all())
+    assert float((~masks[1]).float().mean()) > 0.05
+    alone = build_frame_masks(1, 32, 32, block=8, frac=0.25, keep_base=True)
+    assert float((~alone[0]).float().mean()) > 0.05
+
+
 def test_masked_mean_matches_selected_average():
     pred = torch.arange(12, dtype=torch.float32).view(1, 2, 2, 3)
     target = torch.zeros_like(pred)
@@ -185,9 +193,10 @@ def test_holdout_val_forwards_only_holdout_blocks():
 
 
 def test_resolve_holdout_block_auto_scales_with_lr():
-    assert resolve_holdout_block(512, 512, 0) == 8
-    assert resolve_holdout_block(2048, 2048, 0) == 32
-    assert resolve_holdout_block(1024, 1024, 0) == 16
+    assert resolve_holdout_block(512, 512, 0) == 16
+    assert resolve_holdout_block(1024, 1024, 0) == 32
+    assert resolve_holdout_block(2048, 2048, 0) == 64
+    assert resolve_holdout_block(128, 128, 0) == 16  # floor
     assert resolve_holdout_block(2048, 2048, 8) == 8  # explicit wins
 
 

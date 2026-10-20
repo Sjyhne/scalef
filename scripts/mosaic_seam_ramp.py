@@ -714,6 +714,18 @@ def write_mosaic_strips(
                 print(f"  {n_written}/{len(grid)}", flush=True)
         for i, name in enumerate(("R", "G", "B"), start=1):
             dst.set_band_description(i, name)
+    import sys
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from eval.export_geotiff import arrange_cog
+
+    partial = out.with_name(f".{out.name}.partial.tif")
+    out.replace(partial)
+    try:
+        arrange_cog(partial, out)
+    finally:
+        partial.unlink(missing_ok=True)
     harmonized_p95 = (
         None
         if harmony is None

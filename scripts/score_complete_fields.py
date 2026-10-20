@@ -29,6 +29,7 @@ import lpips  # noqa: E402
 from data import get_dataset  # noqa: E402
 from eval.masked_metrics import compute_masked_image_metrics  # noqa: E402
 from optimize import get_argparser  # noqa: E402
+from s2_dataset import L2A_REFLECTANCE_CAP  # noqa: E402
 from scripts.run_nested_float_validation import FULL_MANIFEST  # noqa: E402
 
 OUT = ROOT / "paper" / "results" / "complete_fields_v2.json"
@@ -42,11 +43,15 @@ def load_chw(path: Path) -> torch.Tensor:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--manifest", type=Path, default=FULL_MANIFEST)
+    ap.add_argument("--shard", default="0/1", help="i/n round-robin over the LR512 fields")
     ap.add_argument("--out", type=Path, default=OUT)
     args_cli = ap.parse_args()
     device = torch.device(args_cli.device)
     lpips_fn = lpips.LPIPS(net="vgg", verbose=False).to(device).eval()
-    jobs = [j for j in json.loads(FULL_MANIFEST.read_text())["jobs"] if j["side"] == 512]
+    shard_i, shard_n = (int(v) for v in args_cli.shard.split("/"))
+    jobs = [j for j in json.loads(args_cli.manifest.read_text())["jobs"] if j["side"] == 512]
+    jobs = jobs[shard_i::shard_n]
     rows = []
     for n, job in enumerate(jobs, 1):
         cmd = shlex.split(job["command"]) if isinstance(job["command"], str) else list(job["command"])
@@ -56,7 +61,7 @@ def main() -> None:
         offset = float(ds.eval_reflectance_offset)
         run = Path(job["metrics"]).parent
         m = json.loads(Path(job["metrics"]).read_text())
-        gt = torch.clamp(ds.get_original_hr().permute(2, 0, 1)[None].float(), 0, 1)
+        gt = torch.clamp(ds.get_original_hr().permute(2, 0, 1)[None].float(), 0.0, L2A_REFLECTANCE_CAP)
         gt = torch.where(gt.amax(dim=1, keepdim=True) > 0, gt - offset, gt)
         mask_t = torch.from_numpy(mask)
         row = {"tile_id": job["tile_id"], "city": args.dataset, "boa_offset": offset,
@@ -72,9 +77,10 @@ def main() -> None:
         rows.append(row)
         print(f"[{n}/{len(jobs)}] {row['tile_id']} lpips {row['lpips_model']:.4f} bil {row['lpips_bilinear']:.4f}",
               flush=True)
-        args_cli.out.write_text(json.dumps({"source_manifest": str(FULL_MANIFEST.relative_to(ROOT)),
-                                            "protocol": "surface reflectance, masked SSIM/LPIPS", "rows": rows},
-                                           indent=1) + "\n")
+        args_cli.out.write_text(json.dumps({
+            "source_manifest": str(args_cli.manifest.resolve().relative_to(ROOT)),
+            "protocol": "surface reflectance, masked SSIM/LPIPS", "shard": args_cli.shard, "rows": rows},
+            indent=1) + "\n")
 
 
 if __name__ == "__main__":

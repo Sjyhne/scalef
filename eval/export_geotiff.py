@@ -8,13 +8,34 @@ from typing import Any
 import numpy as np
 
 
-def _as_hwc01(arr: np.ndarray, lo: float = 0.0) -> np.ndarray:
+def _as_hwc01(arr: np.ndarray, lo: float = 0.0, hi: float = 1.0) -> np.ndarray:
     x = np.asarray(arr, dtype=np.float32)
     if x.ndim == 3 and x.shape[0] in (1, 3) and x.shape[-1] not in (1, 3):
         x = np.transpose(x, (1, 2, 0))
     if x.ndim != 3 or x.shape[-1] not in (1, 3, 4):
         raise ValueError(f"Expected HWC image, got shape {tuple(x.shape)}")
-    return np.clip(x, lo, 1.0)
+    return np.clip(x, float(lo), float(hi))
+
+
+def arrange_cog(src: Path | str, dst: Path | str) -> None:
+    """Rewrite a GeoTIFF as a cloud-optimized GeoTIFF with overviews."""
+    import rasterio
+    from rasterio.shutil import copy as rio_copy
+
+    src, dst = Path(src), Path(dst)
+    with rasterio.open(src) as ds:
+        side = min(int(ds.width), int(ds.height))
+    block = 512 if side >= 512 else 256
+    rio_copy(
+        src,
+        dst,
+        driver="COG",
+        COMPRESS="DEFLATE",
+        BLOCKSIZE=block,
+        BIGTIFF="IF_SAFER",
+        OVERVIEWS="AUTO" if side >= 512 else "NONE",
+        NUM_THREADS="ALL_CPUS",
+    )
 
 
 def write_rgb_geotiff(
@@ -25,18 +46,21 @@ def write_rgb_geotiff(
     crs,
     nodata: float | None = 0.0,
     lo: float = 0.0,
+    hi: float = 1.0,
 ) -> Path:
-    """Write float32 reflectance RGB GeoTIFF (CHW) with CRS + affine.
+    """Write float32 reflectance RGB as a cloud-optimized GeoTIFF.
 
     ``lo`` is the lower clip bound; it is ``-offset`` for layers that already have the
     BOA_ADD_OFFSET removed, so dark pixels keep the negative values that were scored.
+    ``hi`` is the upper clip bound (defaults to ``1.0``; ``export_qgis_layers`` sets
+    ``L2A_REFLECTANCE_CAP - offset`` so exported layers match training/evaluation).
     """
     import rasterio
     from rasterio.crs import CRS
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    rgb = _as_hwc01(rgb_hwc, lo=lo)
+    rgb = _as_hwc01(rgb_hwc, lo=lo, hi=hi)
     h, w, c = rgb.shape
     data = np.transpose(rgb, (2, 0, 1))
     profile = {
@@ -54,10 +78,15 @@ def write_rgb_geotiff(
     }
     if nodata is not None:
         profile["nodata"] = float(nodata)
-    with rasterio.open(path, "w", **profile) as dst:
-        dst.write(data)
-        for i in range(1, c + 1):
-            dst.set_band_description(i, ("R", "G", "B", "A")[i - 1] if i <= 4 else f"B{i}")
+    partial = path.with_name(f".{path.name}.partial.tif")
+    try:
+        with rasterio.open(partial, "w", **profile) as dst:
+            dst.write(data)
+            for i in range(1, c + 1):
+                dst.set_band_description(i, ("R", "G", "B", "A")[i - 1] if i <= 4 else f"B{i}")
+        arrange_cog(partial, path)
+    finally:
+        partial.unlink(missing_ok=True)
     return path
 
 
@@ -90,7 +119,11 @@ def export_qgis_layers(
             "Missing CRS/hr_transform on dataset; cannot write georeferenced GeoTIFFs."
         )
 
-    lo = -float(getattr(dataset, "eval_reflectance_offset", 0.0) or 0.0) if dataset is not None else 0.0
+    from s2_dataset import L2A_REFLECTANCE_CAP
+
+    off = float(getattr(dataset, "eval_reflectance_offset", 0.0) or 0.0) if dataset is not None else 0.0
+    lo = -off if off > 0.0 else 0.0
+    hi = float(L2A_REFLECTANCE_CAP) - off
     written: dict[str, str] = {}
     pairs: list[tuple[str, np.ndarray]] = [
         ("sr_pred.tif", sr_pred_hwc),
@@ -99,15 +132,15 @@ def export_qgis_layers(
     if hr_gt_hwc is not None:
         pairs.insert(0, ("hr_gt.tif", hr_gt_hwc))
     for name, arr in pairs:
-        p = write_rgb_geotiff(out_dir / name, arr, transform=hr_transform, crs=crs, lo=lo)
+        p = write_rgb_geotiff(out_dir / name, arr, transform=hr_transform, crs=crs, lo=lo, hi=hi)
         written[name] = str(p)
 
     if lr_hwc is not None and lr_transform is not None:
-        p = write_rgb_geotiff(out_dir / "s2_lr.tif", lr_hwc, transform=lr_transform, crs=crs, lo=lo)
+        p = write_rgb_geotiff(out_dir / "s2_lr.tif", lr_hwc, transform=lr_transform, crs=crs, lo=lo, hi=hi)
         written["s2_lr.tif"] = str(p)
 
     notes = (
-        "Float32 reflectance ~[0,1]. "
+        "Float32 reflectance ~[0,1], cloud-optimized GeoTIFF. "
         "Open in QGIS and set the same CRS; layers should overlay."
     )
     if hr_gt_hwc is not None:

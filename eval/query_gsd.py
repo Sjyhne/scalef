@@ -18,6 +18,8 @@ from data import _make_coord_grid
 from eval.hr_render import render_hr_rgb_tiled, resolve_hr_render_tile
 from eval.masked_metrics import compute_masked_image_metrics
 from s2_dataset import (
+    L2A_REFLECTANCE_CAP,
+    MIN_STATS_PIXELS,
     _apply_hr_spatial_shift,
     _build_hr_eval_mask,
     _city_id_from_s2_dir,
@@ -77,7 +79,15 @@ def load_query_reference(dataset, query_gsd_m: float, args) -> dict[str, Any]:
     mask = _build_hr_eval_mask(hr_cover, s2_valid_lr, hr_rgb, query_df)
     if not bool(getattr(args, "no_hr_harmonize", False)):
         base = dataset.lr_rgb[int(dataset.base_frame_index)].detach().cpu().numpy()
-        hr_rgb = _harmonize_hr_histogram_match(hr_rgb, base)
+        ref_mask = None
+        if str(getattr(dataset, "hr_harmonize_pixels", "all") or "all").lower() == "clear":
+            cand = (
+                dataset.lr_clear[int(dataset.base_frame_index)].detach().cpu().numpy()
+                & np.any(base > 0, axis=-1)
+            )
+            if int(np.count_nonzero(cand)) >= MIN_STATS_PIXELS:
+                ref_mask = cand
+        hr_rgb = _harmonize_hr_histogram_match(hr_rgb, base, ref_mask)
     shift = None
     if not bool(getattr(args, "no_hr_spatial_align", False)):
         city = _city_id_from_s2_dir(dataset.s2_dir)
@@ -93,7 +103,7 @@ def load_query_reference(dataset, query_gsd_m: float, args) -> dict[str, Any]:
     return {
         "gsd_m": float(query_gsd_m),
         "df": int(query_df),
-        "hr_hwc": np.clip(hr_rgb.astype(np.float32), 0.0, 1.0),
+        "hr_hwc": np.clip(hr_rgb.astype(np.float32), 0.0, L2A_REFLECTANCE_CAP),
         "mask_hw": mask.astype(bool),
         "shift_yx": list(shift) if shift is not None else None,
         "height": int(height),
@@ -152,19 +162,29 @@ def eval_one_query_gsd(
     )
     mean = dataset.get_lr_mean(0).to(device=device, dtype=pred.dtype).view(1, 1, 1, -1)
     std = dataset.get_lr_std(0).to(device=device, dtype=pred.dtype).view(1, 1, 1, -1)
-    pred = torch.clamp(pred * std + mean, 0.0, 1.0)
+    pred = torch.clamp(pred * std + mean, 0.0, L2A_REFLECTANCE_CAP)
     pred_bchw = pred.permute(0, 3, 1, 2)
     gt_bchw = torch.from_numpy(ref["hr_hwc"]).permute(2, 0, 1).unsqueeze(0).to(device)
     lr = dataset.get_lr_sample(0).detach().cpu().numpy()
     if lr.ndim == 3 and lr.shape[0] in (1, 3, 4):
         lr = np.transpose(lr, (1, 2, 0))
-    bilinear = cv2.resize(np.clip(lr[..., :3], 0.0, 1.0), (width, height), interpolation=cv2.INTER_LINEAR)
+    bilinear = cv2.resize(
+        np.clip(lr[..., :3], 0.0, L2A_REFLECTANCE_CAP),
+        (width, height),
+        interpolation=cv2.INTER_LINEAR,
+    )
     bilinear_bchw = (
-        torch.from_numpy(np.clip(bilinear, 0.0, 1.0).astype(np.float32))
+        torch.from_numpy(np.clip(bilinear, 0.0, L2A_REFLECTANCE_CAP).astype(np.float32))
         .permute(2, 0, 1)
         .unsqueeze(0)
         .to(device)
     )
+    refl_offset = float(getattr(dataset, "eval_reflectance_offset", 0.0) or 0.0)
+    if refl_offset:
+        pred_bchw = pred_bchw - refl_offset
+        nodata = (gt_bchw == 0).all(dim=1, keepdim=True)
+        gt_bchw = torch.where(nodata, torch.zeros_like(gt_bchw), gt_bchw - refl_offset)
+        bilinear_bchw = bilinear_bchw - refl_offset
     mask = torch.from_numpy(ref["mask_hw"])
     queried = _metrics_payload(
         compute_masked_image_metrics(
@@ -182,8 +202,10 @@ def eval_one_query_gsd(
     )
     payload: dict[str, Any] = {"query_field": queried}
     if train_pred_hwc is not None and abs(float(query_gsd_m) - float(dataset.hr_gsd_m)) > 1e-6:
+        lo = -refl_offset if refl_offset > 0.0 else 0.0
+        hi = L2A_REFLECTANCE_CAP - refl_offset
         resampled = cv2.resize(
-            np.clip(train_pred_hwc, 0.0, 1.0),
+            np.clip(train_pred_hwc, lo, hi),
             (width, height),
             interpolation=cv2.INTER_LINEAR,
         )

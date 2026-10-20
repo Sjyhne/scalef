@@ -67,7 +67,9 @@ def score(fn, pred: np.ndarray, gt: np.ndarray, mask: np.ndarray, device) -> dic
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--all-parents", action="store_true")
+    ap.add_argument("--run-tag", default=RUN_TAG)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--shard", default="0/1", help="i/n round-robin over the LR64 windows")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
     device = torch.device(args.device)
@@ -79,7 +81,10 @@ def main() -> None:
     index = _index_manifests()
     children = [c for c in json.loads((NEST_ROOT / "nested_lr64_manifest.json").read_text())["tiles"]
                 if c["parent_tile_id"] in parents]
-    out = args.out or RESULTS / f"nested_v4_scores{'_full' if args.all_parents else ''}.json"
+    shard_i, shard_n = (int(v) for v in args.shard.split("/"))
+    children = children[shard_i::shard_n]
+    suffix = "" if args.run_tag == RUN_TAG else "_" + args.run_tag.replace(".", "")
+    out = args.out or RESULTS / f"nested_v4_scores{'_full' if args.all_parents else ''}{suffix}.json"
 
     rows, excluded, cache = [], [], {}
 
@@ -92,7 +97,7 @@ def main() -> None:
 
     for i, child in enumerate(children, 1):
         cov = {s: _covering_tile(child, s, index) for s in SIDES}
-        dirs = {s: _run_dir(tt["parent_city"], tt["tile_id"], s, RUN_TAG) for s, tt in cov.items()}
+        dirs = {s: _run_dir(tt["parent_city"], tt["tile_id"], s, args.run_tag) for s, tt in cov.items()}
         dates = {s: base_date(d) for s, d in dirs.items()}
         if len(set(dates.values())) != 1:
             excluded.append({"child": child["tile_id"], "parent": child["parent_tile_id"], "base_dates": dates})
@@ -114,11 +119,15 @@ def main() -> None:
                 for k, v in score(fn, pred.astype(np.float32), gt, mask, device).items():
                     row[f"{k}_{name}"] = v
             rows.append(row)
-        if i % 100 == 0:
-            print(f"{i}/{len(children)}", flush=True)
-
-    out.write_text(json.dumps({"run_tag": RUN_TAG, "manifest": str(manifest.relative_to(ROOT)),
-                               "n_parents": len(parents), "n_children": len(children),
+        if i % 25 == 0 or i == len(children):
+            out.write_text(json.dumps({"run_tag": args.run_tag, "manifest": str(manifest.resolve().relative_to(ROOT)),
+                                       "shard": args.shard, "n_parents": len(parents),
+                                       "n_children_in_shard": len(children),
+                                       "excluded_base_date_mismatch": excluded, "rows": rows}, indent=1) + "\n")
+            print(f"{i}/{len(children)} rows={len(rows)} excluded={len(excluded)}", flush=True)
+    out.write_text(json.dumps({"run_tag": args.run_tag, "manifest": str(manifest.resolve().relative_to(ROOT)),
+                               "shard": args.shard, "n_parents": len(parents),
+                               "n_children_in_shard": len(children),
                                "excluded_base_date_mismatch": excluded, "rows": rows}, indent=1) + "\n")
     print(f"wrote {out}: {len(rows)} rows, {len(excluded)} windows excluded")
 

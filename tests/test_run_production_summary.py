@@ -106,3 +106,14 @@ def test_existing_run_requires_matching_identity_date_and_geotiff(tmp_path, monk
         export_geotiff=True,
         force_base_date=None,
     )
+
+    geotiff.write_bytes(b"tif")
+    metrics.write_text(
+        json.dumps({"provenance": {"args": {"force_base_date": "2025-07-12"}}})
+    )
+    assert run_production._existing_run_matches(
+        tile,
+        run_prefix="prod_test",
+        export_geotiff=True,
+        force_base_date=None,
+    )

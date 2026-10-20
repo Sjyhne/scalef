@@ -99,6 +99,33 @@ def _maybe_apply_lr_cloud_masks(holdout_state, train_data, args):
     return apply_lr_clear_masks(holdout_state, clear)
 
 
+def _clear_only_train_masks(train_data, args):
+    """Train on every clear pixel when spatial holdout is off.
+
+    Cloud and shadow stay out of the loss. No block grid is cut, so this does
+    not build an early-stop state.
+    """
+    if not bool(getattr(args, "mask_lr_clouds", True)):
+        return None
+    if not bool(getattr(train_data, "has_lr_cloud_mask", False)):
+        return None
+    clear = getattr(train_data, "lr_clear", None)
+    if clear is None:
+        return None
+    from eval.s2_cloud_mask import clear_train_masks, frame_clear_fractions
+
+    masks = clear_train_masks(clear)
+    fracs = frame_clear_fractions(clear)
+    mean_clear = float(sum(fracs) / max(len(fracs), 1))
+    print(
+        f"LR cloud mask: no spatial holdout; training all clear pixels "
+        f"(mean clear {mean_clear * 100:.1f}%, "
+        f"min {min(fracs) * 100:.1f}%, {sum(1 for f in fracs if f < 0.05)} frame(s) <5% clear)",
+        flush=True,
+    )
+    return masks
+
+
 def _json_safe(value):
     """Recursively convert argparse/provenance values into JSON primitives."""
     if isinstance(value, argparse.Namespace):
@@ -437,7 +464,9 @@ def _lr_rgb_hwc_unstandardized(train_data) -> np.ndarray:
         if lr_mean.ndim == 1:
             lr_mean = lr_mean.reshape(1, 1, -1)
         lr_hwc = lr_hwc * lr_std + lr_mean
-    return np.clip(lr_hwc, 0.0, 1.0)
+    from s2_dataset import L2A_REFLECTANCE_CAP
+
+    return np.clip(lr_hwc, 0.0, L2A_REFLECTANCE_CAP)
 
 
 def _hr_spatial_hw(hr_coords: torch.Tensor) -> tuple[int, int]:
@@ -563,6 +592,12 @@ def _subtract_offset_keep_nodata(img: np.ndarray, offset: float) -> np.ndarray:
     return np.where(nodata, 0.0, img - offset).astype(img.dtype, copy=False)
 
 
+def _subtract_offset_keep_nodata_bchw(img: torch.Tensor, offset: float) -> torch.Tensor:
+    """Shift BCHW reflectance tensor by ``-offset`` while leaving all-zero pixels at zero."""
+    nodata = (img == 0).all(dim=1, keepdim=True)
+    return torch.where(nodata, torch.zeros_like(img), img - offset)
+
+
 def eval_hr_metrics(
     model,
     test_loader,
@@ -572,6 +607,8 @@ def eval_hr_metrics(
     iteration: int | None = None,
 ) -> dict:
     """Full-frame HR metrics vs GT (and bilinear baseline) for periodic eval."""
+    from s2_dataset import L2A_REFLECTANCE_CAP
+
     model.eval()
     fwd_kwargs = _step_schedule_kwargs(args, iteration) if args is not None and iteration else {}
     hr_tile = int(getattr(args, "hr_render_tile", 0) or 0) if args is not None else 0
@@ -598,15 +635,17 @@ def eval_hr_metrics(
         pred_tensor = output if output.ndim == 4 else output.unsqueeze(0)
         if pred_tensor.shape[-1] == 3:
             pred_tensor = pred_tensor.permute(0, 3, 1, 2)
+        pred_tensor = torch.clamp(pred_tensor, 0.0, L2A_REFLECTANCE_CAP)
         gt_tensor = hr_image if hr_image.ndim == 4 else hr_image.unsqueeze(0)
         if gt_tensor.shape[-1] == 3:
             gt_tensor = gt_tensor.permute(0, 3, 1, 2)
+        gt_tensor = torch.clamp(gt_tensor, 0.0, L2A_REFLECTANCE_CAP)
 
         hr_h, hr_w = int(gt_tensor.shape[-2]), int(gt_tensor.shape[-1])
-        lr_original = _lr_rgb_hwc_unstandardized(test_loader)
+        lr_original = np.clip(_lr_rgb_hwc_unstandardized(test_loader), 0.0, L2A_REFLECTANCE_CAP)
         lr_bilinear = cv2.resize(lr_original, (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
         bilinear_tensor = (
-            torch.from_numpy(np.clip(lr_bilinear, 0.0, 1.0))
+            torch.from_numpy(np.clip(lr_bilinear, 0.0, L2A_REFLECTANCE_CAP))
             .unsqueeze(0)
             .permute(0, 3, 1, 2)
             .to(device)
@@ -615,7 +654,7 @@ def eval_hr_metrics(
         refl_offset = float(getattr(test_loader, "eval_reflectance_offset", 0.0) or 0.0)
         if refl_offset:
             pred_tensor = pred_tensor - refl_offset
-            gt_tensor = gt_tensor - refl_offset
+            gt_tensor = _subtract_offset_keep_nodata_bchw(gt_tensor, refl_offset)
             bilinear_tensor = bilinear_tensor - refl_offset
         eval_mask_hw = _get_hr_eval_mask(test_loader)
         lpips_fn = get_lpips_model(device)
@@ -632,7 +671,8 @@ def eval_hr_metrics(
             sub_mask = eval_mask_hw[ys, xs] if eval_mask_hw is not None else None
             reference = getattr(test_loader, "sub_reference", None)
             if reference is not None:
-                sub_gt = reference["gt_bchw"].to(device) - refl_offset
+                ref_gt = torch.clamp(reference["gt_bchw"].to(device), 0.0, L2A_REFLECTANCE_CAP)
+                sub_gt = _subtract_offset_keep_nodata_bchw(ref_gt, refl_offset) if refl_offset else ref_gt
                 sub_mask = reference["mask_hw"]
             sub = _compute_full_frame_metrics(
                 pred_tensor[..., ys, xs],
@@ -1200,15 +1240,19 @@ def train_one_iteration(
     dataset=None,
     grad_scaler=None,
     instrumentation: dict | None = None,
+    clear_masks: list | None = None,
 ):
     model.train()
 
     tile = int(getattr(args, "lr_tile", 0) or 0)
     halo = 0
+    train_masks = (
+        holdout_state.train_masks if holdout_state is not None else clear_masks
+    )
     if cross_sampler is not None and tile > 0 and dataset is not None:
         halo = resolve_lr_tile_halo(args)
         pairs = cross_sampler.next_pairs()
-        masks = holdout_state.train_masks if holdout_state is not None else None
+        masks = train_masks
         coords, lr_target, train_mask, sample_id, gt_dx, gt_dy = stack_cross_frame_tiles(
             dataset,
             pairs,
@@ -1233,8 +1277,8 @@ def train_one_iteration(
             gt_dy = torch.zeros(lr_target.shape[0], device=device)
 
         train_mask = None
-        if holdout_state is not None:
-            train_mask = gather_train_masks(holdout_state.train_masks, sample_id, device)
+        if train_masks is not None:
+            train_mask = gather_train_masks(train_masks, sample_id, device)
 
         full_lr_hw = (int(lr_target.shape[1]), int(lr_target.shape[2]))
         origins = tile_sampler.next_origins() if tile_sampler is not None and tile > 0 else None
@@ -1401,6 +1445,9 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
         device=device,
     )
     holdout_state = _maybe_apply_lr_cloud_masks(holdout_state, train_data, args)
+    clear_masks = (
+        None if holdout_state is not None else _clear_only_train_masks(train_data, args)
+    )
     val_every = _holdout_val_interval(args)
     val_loss_list: list[float] = []
     
@@ -1426,6 +1473,7 @@ def optimize_and_evaluate_sample(model, train_data, device, sample_idx, args, ou
                 cross_sampler=cross_sampler,
                 dataset=train_data,
                 grad_scaler=grad_scaler,
+                clear_masks=clear_masks,
             )
             scheduler.step()
             iteration += 1
@@ -2189,6 +2237,26 @@ def get_argparser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--lr_reflectance_ceiling",
+        type=float,
+        default=None,
+        help=(
+            "Drop pixels with any DN/10000 band above this value from the loss and from "
+            "per-frame standardization. Off by default. 1.0 removes specular solar panels "
+            "that OmniCloudMask leaves unmarked."
+        ),
+    )
+    parser.add_argument(
+        "--hr_harmonize_pixels",
+        choices=["clear", "all"],
+        default="all",
+        help=(
+            "Base-frame pixels that define the target histogram when the HR reference is "
+            "histogram-matched to the base frame: 'all' (default, as in the v5 benchmarks) or "
+            "'clear' (cloud-mask and nodata pixels excluded; falls back to 'all' below 256 pixels)."
+        ),
+    )
+    parser.add_argument(
         "--s2_boa_offset",
         choices=["keep", "remove"],
         default="keep",
@@ -2837,6 +2905,9 @@ def main():
         device=device,
     )
     holdout_state = _maybe_apply_lr_cloud_masks(holdout_state, train_data, args)
+    clear_masks = (
+        None if holdout_state is not None else _clear_only_train_masks(train_data, args)
+    )
     val_every = _holdout_val_interval(args)
     val_loss_list: list[float] = []
     
@@ -2912,6 +2983,7 @@ def main():
                 dataset=train_data,
                 grad_scaler=grad_scaler,
                 instrumentation=instrumentation,
+                clear_masks=clear_masks,
             )
             if cuda_step_end is not None and cuda_step_start is not None:
                 cuda_step_end.record()
@@ -3143,14 +3215,16 @@ def main():
                             lr_original = lr_original[:, :, :3]
             # No unstandardization needed - get_lr_sample already returns unstandardized [0, 1] range
 
+        from s2_dataset import L2A_REFLECTANCE_CAP
+
         lr_h, lr_w = lr_original.shape[:2]
         hr_h, hr_w = pred_np.shape[:2]
+        lr_original = np.clip(lr_original, 0.0, L2A_REFLECTANCE_CAP)
         lr_bilinear = cv2.resize(lr_original, (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
-        pred_np = np.clip(pred_np, 0, 1)
-        lr_original = np.clip(lr_original, 0, 1)
-        lr_bilinear = np.clip(lr_bilinear, 0, 1)
+        pred_np = np.clip(pred_np, 0.0, L2A_REFLECTANCE_CAP)
+        lr_bilinear = np.clip(lr_bilinear, 0.0, L2A_REFLECTANCE_CAP)
         if has_hr:
-            gt_np = np.clip(gt_np, 0, 1)
+            gt_np = np.clip(gt_np, 0.0, L2A_REFLECTANCE_CAP)
         else:
             gt_np = None
         refl_offset = float(getattr(train_data, "eval_reflectance_offset", 0.0) or 0.0)
@@ -3447,6 +3521,7 @@ def main():
             'clear_fractions': list(getattr(train_data, "lr_clear_fractions", []) or []),
             'stats_pixels': getattr(train_data, "lr_stats_pixels", None),
             'stats_masked': list(getattr(train_data, "lr_stats_masked", []) or []),
+            'harmonize_pixels': getattr(train_data, "hr_harmonize_pixels", None),
             'boa_offset_mode': getattr(train_data, "s2_boa_offset_mode", None),
             'boa_offsets': list(getattr(train_data, "s2_boa_offsets", []) or []),
         },

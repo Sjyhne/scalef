@@ -1,9 +1,10 @@
 """Spatial LR pixel-block holdout for validation / early stopping.
 
-Holds out blocks independently per frame so every revisit (including the
-anchor) still trains, while each held block is an unseen observation. Whole-
-frame holdout is intentionally not used: removing frame 0 frees the
-radiometric/geometric gauge.
+Holds out blocks independently per revisit so each held block is an unseen
+observation. The base frame (index 0) is fully supervised whenever another
+frame exists: punching holes in the anchor is what left block-sized squares
+free to drift. Whole-frame holdout is intentionally not used: removing frame 0 frees
+the radiometric/geometric gauge.
 """
 
 from __future__ import annotations
@@ -51,12 +52,21 @@ def build_frame_masks(
     block: int = 8,
     frac: float = 0.1,
     device: torch.device | str | None = None,
+    keep_base: bool = False,
 ) -> list[torch.Tensor]:
-    """One train-mask per frame; seed = frame index for independent holdouts."""
-    return [
+    """One train-mask per frame; seed = frame index for independent holdouts.
+
+    ``keep_base`` fills frame 0 when at least one other frame can still supply
+    held-out pixels for early stopping. A single-frame run keeps its holdout,
+    or validation would have nothing to score.
+    """
+    masks = [
         build_holdout_mask(h, w, block, frac, device=device, seed=f)
         for f in range(int(num_frames))
     ]
+    if keep_base and int(num_frames) > 1 and masks:
+        masks[0] = torch.ones_like(masks[0])
+    return masks
 
 
 def masked_mean(elem: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -99,13 +109,17 @@ def val_frame_ids(num_frames: int, max_frames: int = 4) -> list[int]:
 
 
 def resolve_holdout_block(lr_height: int, lr_width: int, holdout_block: int) -> int:
-    """Return LR holdout block side. ``0`` = auto-scale vs LR512@8 density."""
+    """Return LR holdout block side. ``0`` = auto-scale vs LR512 at 16 pixels.
+
+    Sixteen LR pixels is 160 m on a production window, a 32×32 grid of blocks.
+    The side scales with the field and never drops below 16, so a held-out
+    region stays larger than the blur support.
+    """
     requested = int(holdout_block)
     if requested > 0:
         return max(1, requested)
     side = max(int(lr_height), int(lr_width), 1)
-    # LR512 with 8×8 → 64×64 block grid. Keep similar grid count on larger AOIs.
-    return max(8, int(round(8 * side / 512.0)))
+    return max(16, int(round(16 * side / 512.0)))
 
 
 def resolve_holdout_patch_batch(holdout_block: int, patch_batch: int | None = None) -> int:
@@ -370,16 +384,20 @@ def init_early_stop_state(
         block=block,
         frac=frac,
         device=device,
+        keep_base=True,
     )
-    held = 100.0 * float(torch.stack([(~m).float().mean() for m in masks]).mean())
+    others = masks[1:] if int(num_frames) > 1 else masks
+    held = 100.0 * float(torch.stack([(~m).float().mean() for m in others]).mean())
     metric = str(metric).lower().strip()
     if max_regression is None:
         max_regression = default_early_stop_regression(metric)
     if ema_alpha is None:
         ema_alpha = default_early_stop_ema(metric)
     auto = int(holdout_block) <= 0
+    base_note = "base frame fully supervised; " if int(num_frames) > 1 else ""
+    whose = "each other frame's" if int(num_frames) > 1 else "the frame's"
     print(
-        f"spatial holdout: {held:.1f}% of each frame's LR pixels held out in "
+        f"spatial holdout: {base_note}{held:.1f}% of {whose} LR pixels held out in "
         f"{block}x{block} blocks"
         f"{' (auto)' if auto else ''} "
         f"(frac={frac:.3f}, stop_metric={metric}, "
@@ -402,7 +420,11 @@ def init_early_stop_state(
 
 
 def apply_lr_clear_masks(state: EarlyStopState, clear: torch.Tensor) -> EarlyStopState:
-    """AND per-frame SCL/cloud clear maps into train masks; keep spatial holdout for val."""
+    """AND per-frame SCL/cloud clear maps into train masks; keep spatial holdout for val.
+
+    A withheld block may overlap cloud. Those pixels are dropped from the loss
+    and from the stop score; the clear pixels in the block stay withheld.
+    """
     from eval.s2_cloud_mask import apply_clear_to_holdout_masks, frame_clear_fractions
 
     spatial = list(state.spatial_masks or state.train_masks)

@@ -775,6 +775,7 @@ def fetch(args) -> dict:
             "mgrs_tile": mgrs,
             "datetime": None if it.datetime is None else it.datetime.isoformat(),
             "eo:cloud_cover": it.properties.get("eo:cloud_cover"),
+            "s2:processing_baseline": it.properties.get("s2:processing_baseline"),
             "cloud_frac": frac,
             **{k: v for k, v in extra.items() if k != "cloud_frac"},
         }
@@ -815,6 +816,9 @@ def fetch(args) -> dict:
         if l1c_item is not None:
             rec["l1c_id"] = l1c_item.id
         meta["frames"].append(rec)
+        from s2_dataset import record_processing_baseline
+
+        record_processing_baseline(it.id, rec.get("s2:processing_baseline"))
         if day:
             seen_days.add(day)
             existing_days.add(day)

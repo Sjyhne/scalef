@@ -261,7 +261,7 @@ def main() -> None:
         "--min-land-frac",
         type=float,
         default=0.0,
-        help="Min fraction of n×n window samples on land (0 = any overlap).",
+        help="Min fraction of the window on land (0 = any geometric overlap).",
     )
     ap.add_argument(
         "--land-sample-n",

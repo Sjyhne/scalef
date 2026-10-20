@@ -63,6 +63,10 @@ def _cmd(
     run_prefix: str = DEFAULT_RUN_PREFIX,
     max_base_cloud_frac: float = 0.02,
     force_base_date: str | None = None,
+    frame_screen: Path | None = None,
+    s2_boa_offset: str = "keep",
+    spatial_holdout: float = 0.1,
+    lr_reflectance_ceiling: float | None = None,
 ) -> list[str]:
     parent = tile["parent"]
     tile_id = tile["tile_id"]
@@ -102,7 +106,7 @@ def _cmd(
         "--hr_render_tile",
         "2048",
         "--spatial_holdout",
-        "0.1",
+        str(float(spatial_holdout)),
         "--holdout_block",
         "0",
         "--max_base_cloud_frac",
@@ -113,6 +117,12 @@ def _cmd(
     tile_date = tile.get("force_base_date") or force_base_date
     if tile_date:
         cmd.extend(["--force_base_date", str(tile_date)])
+    if frame_screen is not None:
+        cmd.extend(["--frame_screen", str(frame_screen)])
+    if s2_boa_offset != "keep":
+        cmd.extend(["--s2_boa_offset", s2_boa_offset])
+    if lr_reflectance_ceiling is not None:
+        cmd.extend(["--lr_reflectance_ceiling", str(float(lr_reflectance_ceiling))])
     if not export_geotiff:
         cmd.append("--no_qgis_export")
     return cmd
@@ -152,6 +162,7 @@ def _existing_run_matches(
     run_prefix: str,
     export_geotiff: bool,
     force_base_date: str | None,
+    lr_reflectance_ceiling: float | None = None,
 ) -> bool:
     """Only resume an output produced for the requested identity date."""
     metrics_path = _metrics_path(tile["parent"], tile["tile_id"], run_prefix)
@@ -162,10 +173,17 @@ def _existing_run_matches(
     except (OSError, json.JSONDecodeError):
         return False
     requested_date = tile.get("force_base_date") or force_base_date
-    recorded_date = (metrics.get("args") or {}).get("force_base_date")
+    recorded_args = metrics.get("args") or (metrics.get("provenance") or {}).get("args") or {}
+    recorded_date = recorded_args.get("force_base_date")
     if (str(recorded_date)[:10] if recorded_date else None) != (
         str(requested_date)[:10] if requested_date else None
     ):
+        return False
+    recorded_ceiling = recorded_args.get("lr_reflectance_ceiling")
+    if lr_reflectance_ceiling is None:
+        if recorded_ceiling not in (None, 0):
+            return False
+    elif recorded_ceiling is None or abs(float(recorded_ceiling) - float(lr_reflectance_ceiling)) > 1e-6:
         return False
     if export_geotiff and not _sr_geotiff_path(
         tile["parent"], tile["tile_id"], run_prefix
@@ -184,6 +202,10 @@ def _run_one(
     *,
     max_base_cloud_frac: float = 0.02,
     force_base_date: str | None = None,
+    frame_screen: Path | None = None,
+    s2_boa_offset: str = "keep",
+    spatial_holdout: float = 0.1,
+    lr_reflectance_ceiling: float | None = None,
 ) -> dict:
     mpath = _metrics_path(tile["parent"], tile["tile_id"], run_prefix)
     if skip_existing and _existing_run_matches(
@@ -191,6 +213,7 @@ def _run_one(
         run_prefix=run_prefix,
         export_geotiff=export_geotiff,
         force_base_date=force_base_date,
+        lr_reflectance_ceiling=lr_reflectance_ceiling,
     ):
         print(f"[gpu{device}] skip {tile['tile_id']}", flush=True)
         return _summarize(tile, mpath, skipped=True, run_prefix=run_prefix)
@@ -204,6 +227,10 @@ def _run_one(
             run_prefix=run_prefix,
             max_base_cloud_frac=max_base_cloud_frac,
             force_base_date=force_base_date,
+            frame_screen=frame_screen,
+            s2_boa_offset=s2_boa_offset,
+            spatial_holdout=spatial_holdout,
+            lr_reflectance_ceiling=lr_reflectance_ceiling,
         ),
         cwd=ROOT,
         check=True,
@@ -222,6 +249,10 @@ def _worker(
     run_prefix: str = DEFAULT_RUN_PREFIX,
     max_base_cloud_frac: float = 0.02,
     force_base_date: str | None = None,
+    frame_screen: Path | None = None,
+    s2_boa_offset: str = "keep",
+    spatial_holdout: float = 0.1,
+    lr_reflectance_ceiling: float | None = None,
 ) -> None:
     while True:
         try:
@@ -238,6 +269,10 @@ def _worker(
                 run_prefix=run_prefix,
                 max_base_cloud_frac=max_base_cloud_frac,
                 force_base_date=force_base_date,
+                frame_screen=frame_screen,
+                s2_boa_offset=s2_boa_offset,
+                spatial_holdout=spatial_holdout,
+                lr_reflectance_ceiling=lr_reflectance_ceiling,
             )
             with lock:
                 results.append(row)
@@ -356,6 +391,33 @@ def main() -> None:
         default=None,
         help="JSON from plan_identity_icm.py; per-tile force_base_date from assignment.",
     )
+    ap.add_argument(
+        "--frame-screen",
+        type=Path,
+        default=None,
+        help="frame_screen.v1 JSON. Switches cloud masks and drops excluded frames.",
+    )
+    ap.add_argument(
+        "--s2-boa-offset",
+        choices=("keep", "remove"),
+        default="keep",
+        help="remove subtracts the base frame's +0.1 offset from the GeoTIFF export.",
+    )
+    ap.add_argument(
+        "--spatial-holdout",
+        type=float,
+        default=0.1,
+        help="Fraction of LR blocks withheld per non-base date. 0 trains every clear pixel.",
+    )
+    ap.add_argument(
+        "--lr-reflectance-ceiling",
+        type=float,
+        default=None,
+        help=(
+            "Drop pixels with any DN/10000 band above this value from the loss and "
+            "from per-frame standardization. Off unless set."
+        ),
+    )
     args = ap.parse_args()
 
     man_path = args.manifest if args.manifest.is_absolute() else ROOT / args.manifest
@@ -435,6 +497,10 @@ def main() -> None:
                 args.run_prefix,
                 float(args.max_base_cloud_frac),
                 args.force_base_date,
+                args.frame_screen.resolve() if args.frame_screen else None,
+                args.s2_boa_offset,
+                float(args.spatial_holdout),
+                args.lr_reflectance_ceiling,
             ),
             daemon=True,
         )
@@ -455,6 +521,9 @@ def main() -> None:
         "max_base_cloud_frac": float(args.max_base_cloud_frac),
         "force_base_date": args.force_base_date,
         "identity_plan": str(args.identity_plan) if args.identity_plan else None,
+        "frame_screen": str(args.frame_screen) if args.frame_screen else None,
+        "s2_boa_offset": args.s2_boa_offset,
+        "lr_reflectance_ceiling": args.lr_reflectance_ceiling,
         "allow_no_hr": True,
         "export_geotiff": export_geotiff,
         "land_filter": man.get("land_filter"),

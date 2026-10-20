@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -38,9 +39,11 @@ from rasterio.transform import array_bounds, from_bounds, rowcol
 from rasterio.windows import Window
 from rasterio.windows import from_bounds as window_from_bounds
 
-from scripts.mosaic_seam_ramp import estimate_harmonization
-
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.mosaic_seam_ramp import estimate_harmonization  # noqa: E402
 DEFAULT_RUN_PREFIX = "prod_k4"
 
 
@@ -83,6 +86,22 @@ def _bil_path(parent: str, tile_id: str, prefix: str = DEFAULT_RUN_PREFIX) -> Pa
     return _sr_path(parent, tile_id, prefix).with_name("s2_bilinear.tif")
 
 
+def _lr_path(parent: str, tile_id: str, prefix: str = DEFAULT_RUN_PREFIX) -> Path:
+    return _sr_path(parent, tile_id, prefix).with_name("s2_lr.tif")
+
+
+def _layer_path(
+    parent: str, tile_id: str, prefix: str, layer: str
+) -> Path:
+    if layer == "sr":
+        return _sr_path(parent, tile_id, prefix)
+    if layer == "bilinear":
+        return _bil_path(parent, tile_id, prefix)
+    if layer == "lr":
+        return _lr_path(parent, tile_id, prefix)
+    raise ValueError(f"unknown mosaic layer {layer!r}")
+
+
 def collect_sources(
     manifest: dict, *, layer: str, run_prefix: str = DEFAULT_RUN_PREFIX
 ) -> tuple[list[Path], list[dict]]:
@@ -91,11 +110,7 @@ def collect_sources(
     paths: list[Path] = []
     for tile in manifest["tiles"]:
         tid = tile["tile_id"]
-        path = (
-            _sr_path(parent, tid, run_prefix)
-            if layer == "sr"
-            else _bil_path(parent, tid, run_prefix)
-        )
+        path = _layer_path(parent, tid, run_prefix, layer)
         if not path.is_file():
             missing.append({"tile_id": tid, "expected": str(path.relative_to(ROOT))})
             continue
@@ -826,9 +841,9 @@ def main() -> None:
     )
     ap.add_argument(
         "--layer",
-        choices=["sr", "bilinear"],
+        choices=["sr", "bilinear", "lr"],
         default="sr",
-        help="Which per-tile GeoTIFF to mosaic (default: sr_pred).",
+        help="Which per-tile GeoTIFF to mosaic: sr_pred, s2_bilinear, or the 10 m base frame s2_lr.",
     )
     ap.add_argument(
         "--method",
@@ -840,8 +855,8 @@ def main() -> None:
         "--feather-px",
         type=float,
         default=None,
-        help="HR-pixel ramp width for --method feather. "
-        "Default: overlap_px * (sr_gsd inferred as 4× LR) from manifest.",
+        help="Ramp width in source pixels for --method feather. "
+        "Default: overlap_px for the 10 m base frame, otherwise overlap_px × 4.",
     )
     ap.add_argument(
         "--no-cog",
@@ -893,11 +908,7 @@ def main() -> None:
 
     tile_rows = []
     for tile in man["tiles"]:
-        path = (
-            _sr_path(parent, tile["tile_id"], args.run_prefix)
-            if args.layer == "sr"
-            else _bil_path(parent, tile["tile_id"], args.run_prefix)
-        )
+        path = _layer_path(parent, tile["tile_id"], args.run_prefix, args.layer)
         if path.is_file():
             tile_rows.append((tile, path))
     grid = {
@@ -998,11 +1009,17 @@ def main() -> None:
     if method is None:
         method = "feather" if ovl > 0 else "first"
 
-    # LR overlap → HR feather width (production df=4).
+    # LR overlap → source-pixel feather width. SR and bilinear are on the 2.5 m grid.
     overlap_lr = int(man.get("overlap_px") or round(float(man.get("side", 512)) * ovl))
-    feather_px = float(args.feather_px) if args.feather_px is not None else float(max(1, overlap_lr * 4))
+    gsd_scale = 1 if args.layer == "lr" else 4
+    feather_px = (
+        float(args.feather_px)
+        if args.feather_px is not None
+        else float(max(1, overlap_lr * gsd_scale))
+    )
 
-    tag = "sr" if args.layer == "sr" else "bilinear"
+    tag = {"sr": "sr", "bilinear": "bilinear", "lr": "base"}[args.layer]
+    gsd_tag = "10m" if args.layer == "lr" else "2p5m"
     ovl_suffix = f"_ovl{int(round(ovl * 100))}" if ovl > 0 else ""
     method_suffix = f"_{method}" if method == "feather" and ovl > 0 else ""
     out = args.out
@@ -1011,7 +1028,7 @@ def main() -> None:
             ROOT
             / "production"
             / "mosaics"
-            / f"{parent}{ovl_suffix}{method_suffix}_{tag}_2p5m.tif"
+            / f"{parent}{ovl_suffix}{method_suffix}_{tag}_{gsd_tag}.tif"
         )
     elif not out.is_absolute():
         out = ROOT / out

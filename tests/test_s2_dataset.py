@@ -20,6 +20,7 @@ from s2_dataset import (
     _is_nib_focus_location,
     _largest_ones_rectangle,
     _nib_acquisition_date,
+    apply_reflectance_ceiling,
     standardize_rgb_masked,
 )
 
@@ -42,6 +43,24 @@ def test_masked_standardization_ignores_cloud_pixels():
 
     _, mean_all, _, _ = standardize_rgb_masked(torch.from_numpy(rgb), None)
     assert float(mean_all.view(-1)[0]) > float(mean.view(-1)[0]) + 0.1
+
+
+def test_reflectance_ceiling_keeps_specular_pixels_out_of_the_scale():
+    import torch
+
+    rng = np.random.default_rng(0)
+    rgb = rng.uniform(0.02, 0.12, size=(32, 32, 3)).astype(np.float32)
+    rgb[4:8, 4:8] = 1.8
+    clear = np.ones((32, 32), dtype=bool)
+    assert apply_reflectance_ceiling(clear, rgb, None) is clear
+    masked = apply_reflectance_ceiling(clear, rgb, 1.0)
+    assert not masked[4:8, 4:8].any()
+    assert int(masked.sum()) == 32 * 32 - 16
+    _, _, std, used = standardize_rgb_masked(torch.from_numpy(rgb), masked)
+    assert used
+    assert float(std.max()) < 0.1
+    _, _, std_all, _ = standardize_rgb_masked(torch.from_numpy(rgb), clear)
+    assert float(std_all.max()) > 0.2
 
 
 def test_masked_standardization_falls_back_when_mostly_cloudy():
@@ -201,6 +220,76 @@ def test_force_base_date_picks_requested_day_despite_cloud():
         if _frame_acquisition_date(fr) == date(2025, 7, 12)
     ]
     assert hits == [0]
+
+
+def test_boa_add_offset_accepts_an_explicit_baseline():
+    import s2_dataset
+
+    assert s2_dataset.boa_add_offset("not-in-the-cache", "04.00") == 0.1
+    assert s2_dataset.boa_add_offset("not-in-the-cache", "02.07") == 0.0
+
+
+def test_warp_rgb_reads_only_the_overlapping_source_window():
+    import rasterio
+    from rasterio.transform import Affine
+    from rasterio.warp import Resampling, reproject
+
+    from s2_dataset import _warp_rgb_to_grid
+
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 255, size=(3, 90, 120), dtype=np.uint8)
+    image[:, :8, :] = 0
+    src_transform = Affine(1.0, 0.0, 500000.0, 0.0, -1.0, 6600000.0)
+    dst_transform = Affine(2.5, 0.0, 500040.0, 0.0, -2.5, 6599920.0)
+    dst_h, dst_w = 16, 12
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tif = Path(tmp) / "hr.tif"
+        with rasterio.open(
+            tif,
+            "w",
+            driver="GTiff",
+            width=120,
+            height=90,
+            count=3,
+            dtype="uint8",
+            crs="EPSG:32632",
+            transform=src_transform,
+            nodata=0,
+        ) as dst:
+            dst.write(image)
+        got, cover, crs, _bounds = _warp_rgb_to_grid(tif, "EPSG:32632", dst_transform, dst_h, dst_w)
+        full = np.zeros((3, dst_h, dst_w), dtype=np.float32)
+        full_cover = np.zeros((dst_h, dst_w), dtype=np.uint8)
+        reproject(
+            source=image.astype(np.float32),
+            destination=full,
+            src_transform=src_transform,
+            src_crs="EPSG:32632",
+            dst_transform=dst_transform,
+            dst_crs="EPSG:32632",
+            resampling=Resampling.bilinear,
+            src_nodata=0,
+            dst_nodata=0.0,
+        )
+        reproject(
+            source=np.ones((90, 120), dtype=np.uint8),
+            destination=full_cover,
+            src_transform=src_transform,
+            src_crs="EPSG:32632",
+            dst_transform=dst_transform,
+            dst_crs="EPSG:32632",
+            resampling=Resampling.nearest,
+        )
+        peak = float(full.max()) if full.size else 0.0
+        if peak > 1.5:
+            full = full / 255.0
+        full = np.clip(full, 0.0, 1.0)
+        np.testing.assert_allclose(got, np.transpose(full, (1, 2, 0)), atol=1e-6)
+        np.testing.assert_array_equal(cover, full_cover > 0)
+        assert str(crs) == "EPSG:32632"
 
 
 def test_boa_add_offset_removed_only_when_requested():

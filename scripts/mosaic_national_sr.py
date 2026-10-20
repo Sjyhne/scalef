@@ -228,6 +228,156 @@ def _build_row_source_index(
     return rows
 
 
+def _footprint_distance(
+    xs: np.ndarray, ys: np.ndarray, bounds: list[float]
+) -> np.ndarray:
+    """Distance in destination units from each pixel centre to the footprint edge."""
+    left, bottom, right, top = bounds
+    return np.minimum(
+        np.minimum(xs - left, right - xs),
+        np.minimum(ys - bottom, top - ys),
+    )
+
+
+def _pixel_centres(transform: Affine, window: Window) -> tuple[np.ndarray, np.ndarray]:
+    columns = np.arange(int(window.col_off), int(window.col_off + window.width)) + 0.5
+    rows = np.arange(int(window.row_off), int(window.row_off + window.height)) + 0.5
+    xs = transform.c + columns * transform.a
+    ys = transform.f + rows * transform.e
+    return xs[None, :], ys[:, None]
+
+
+def _seam_weights(
+    distances: list[np.ndarray], valid: list[np.ndarray], ramp: float
+) -> np.ndarray:
+    """Blend sources only near the medial boundary of their footprints."""
+    stacked = np.stack(
+        [
+            np.where(mask, distance, -np.inf)
+            for distance, mask in zip(distances, valid)
+        ],
+        axis=0,
+    )
+    furthest = np.max(stacked, axis=0)
+    margin = furthest - stacked
+    near = np.isfinite(stacked) & (margin < ramp)
+    phase = np.clip(margin / ramp, 0.0, 1.0)
+    weights = np.where(near, 0.5 * (1.0 + np.cos(np.pi * phase)), 0.0)
+    total = np.sum(weights, axis=0, keepdims=True)
+    return np.where(total > 0, weights / total, 0.0).astype(np.float32)
+
+
+def _estimate_band_offsets(
+    cache: _VRTCache,
+    details: list[dict[str, Any]],
+    transform: Affine,
+    count: int,
+    *,
+    sample_side: int = 256,
+    max_abs_offset: float = 0.05,
+) -> np.ndarray:
+    """One additive correction per source band, from robust overlap differences.
+
+    The source with the largest footprint stays at zero. Corrections are what
+    must be subtracted so overlapping granules share a level.
+    """
+    indexes = list(range(1, count + 1))
+    areas = []
+    for detail in details:
+        left, bottom, right, top = detail["bounds_dst_crs"]
+        areas.append(max(0.0, right - left) * max(0.0, top - bottom))
+    reference = int(np.argmax(areas))
+    rows: list[np.ndarray] = []
+    targets: list[np.ndarray] = []
+    for i, first in enumerate(details):
+        for j in range(i + 1, len(details)):
+            second = details[j]
+            if not _intersects(first["bounds_dst_crs"], tuple(second["bounds_dst_crs"])):
+                continue
+            left = max(first["bounds_dst_crs"][0], second["bounds_dst_crs"][0])
+            bottom = max(first["bounds_dst_crs"][1], second["bounds_dst_crs"][1])
+            right = min(first["bounds_dst_crs"][2], second["bounds_dst_crs"][2])
+            top = min(first["bounds_dst_crs"][3], second["bounds_dst_crs"][3])
+            column = int(round(((left + right) / 2 - transform.c) / transform.a))
+            row = int(round((transform.f - (bottom + top) / 2) / abs(transform.e)))
+            half = sample_side // 2
+            window = Window(
+                max(0, column - half),
+                max(0, row - half),
+                sample_side,
+                sample_side,
+            )
+            window = window.intersection(Window(0, 0, cache.width, cache.height))
+            if window.width < 8 or window.height < 8:
+                continue
+            left_sample = cache.get(i).read(indexes=indexes, window=window, masked=True)
+            right_sample = cache.get(j).read(indexes=indexes, window=window, masked=True)
+            left_data = np.ma.getdata(left_sample).astype(np.float64, copy=False)
+            right_data = np.ma.getdata(right_sample).astype(np.float64, copy=False)
+            usable = ~(np.ma.getmaskarray(left_sample) | np.ma.getmaskarray(right_sample))
+            usable = np.all(usable, axis=0) & np.all(np.isfinite(left_data), axis=0)
+            usable &= np.all(np.isfinite(right_data), axis=0)
+            if int(np.count_nonzero(usable)) < 32:
+                continue
+            delta = np.median(right_data[:, usable] - left_data[:, usable], axis=1)
+            weight = math.sqrt(float(np.count_nonzero(usable)))
+            row_weights = np.zeros(len(details), dtype=np.float64)
+            row_weights[j] = weight
+            row_weights[i] = -weight
+            rows.append(row_weights)
+            targets.append(weight * delta)
+    offsets = np.zeros((len(details), count), dtype=np.float64)
+    if rows:
+        design = np.vstack(rows)
+        observed = np.vstack(targets)
+        pin = np.zeros(len(details), dtype=np.float64)
+        pin[reference] = 1.0
+        design = np.vstack([design, pin])
+        for band in range(count):
+            rhs = np.concatenate([observed[:, band], [0.0]])
+            solved, _, _, _ = np.linalg.lstsq(design, rhs, rcond=None)
+            offsets[:, band] = np.clip(solved, -max_abs_offset, max_abs_offset)
+        offsets[reference] = 0.0
+    return offsets
+
+
+def _apply_seam(
+    samples: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]],
+    details: list[dict[str, Any]],
+    transform: Affine,
+    window: Window,
+    ramp: float,
+    dtype: str,
+) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]]]:
+    xs, ys = _pixel_centres(transform, window)
+    distances = [
+        _footprint_distance(xs, ys, details[source_index]["bounds_dst_crs"])
+        for source_index, _data, _band_valid, _pixel_valid in samples
+    ]
+    weights = _seam_weights(
+        distances,
+        [
+            pixel_valid & (distance >= 0)
+            for distance, (_index, _data, _band_valid, pixel_valid) in zip(distances, samples)
+        ],
+        ramp,
+    )
+    count, height, width = samples[0][1].shape
+    numerator = np.zeros((count, height, width), dtype=np.float64)
+    denominator = np.zeros((count, height, width), dtype=np.float64)
+    contributions: list[tuple[int, int]] = []
+    for sample_index, (source_index, data, band_valid, _pixel_valid) in enumerate(samples):
+        weight = weights[sample_index] * band_valid
+        numerator += data.astype(np.float64, copy=False) * weight
+        denominator += weight
+        contributions.append((source_index, int(np.count_nonzero(weights[sample_index] > 0))))
+    blended = np.full((count, height, width), DEFAULT_NODATA, dtype=np.float64)
+    np.divide(numerator, denominator, out=blended, where=denominator > 0)
+    if not np.issubdtype(np.dtype(dtype), np.floating):
+        blended = np.rint(blended)
+    return blended.astype(dtype, copy=False), denominator > 0, contributions
+
+
 def _write_window(
     destination: Any, data: np.ndarray, valid: np.ndarray, window: Window
 ) -> None:
@@ -405,10 +555,16 @@ def mosaic_sources(
     resume: bool = True,
     max_overlap_mae: float | None = None,
     max_nodata_fraction: float | None = None,
+    seam_ramp_m: float | None = None,
+    harmonize_overlaps: bool = False,
 ) -> dict[str, Any]:
     started = time.monotonic()
     if block_size < 16 or block_size % 16:
         raise ValueError("block_size must be a multiple of 16")
+    if seam_ramp_m is not None and (not math.isfinite(seam_ramp_m) or seam_ramp_m <= 0):
+        raise ValueError("seam_ramp_m must be a positive finite width in destination units")
+    if harmonize_overlaps and seam_ramp_m is None:
+        raise ValueError("harmonize_overlaps is applied with a seam ramp")
     if max_open_sources < 1:
         raise ValueError("max_open_sources must be at least 1")
     scan_started = time.monotonic()
@@ -423,7 +579,9 @@ def mosaic_sources(
         "block_size": block_size,
         "nodata": DEFAULT_NODATA,
         "resampling": "bilinear",
-        "merge": "first-valid-source",
+        "merge": "first-valid-source" if seam_ramp_m is None else "seam-ramp",
+        "seam_ramp_m": seam_ramp_m,
+        "harmonize_overlaps": harmonize_overlaps,
     }
     fingerprint = hashlib.sha256(
         json.dumps(fingerprint_payload, sort_keys=True).encode()
@@ -497,6 +655,7 @@ def mosaic_sources(
         details, transform, width, height, block_size
     )
     write_started = time.monotonic()
+    band_offsets = None
     try:
         with rasterio.Env(GDAL_TIFF_INTERNAL_MASK=True), ExitStack() as stack:
             destination = stack.enter_context(rasterio.open(temporary_gtiff, "w", **profile))
@@ -511,12 +670,18 @@ def mosaic_sources(
                 )
             )
             band_indexes = list(range(1, count + 1))
+            band_offsets = (
+                _estimate_band_offsets(cache, details, transform, count)
+                if harmonize_overlaps
+                else None
+            )
             for (block_row, block_column), window in destination.block_windows(1):
                 window_shape = (count, int(window.height), int(window.width))
                 output = np.full(window_shape, DEFAULT_NODATA, dtype=dtype)
                 valid = np.zeros(window_shape, dtype=bool)
                 source_coverage_count = np.zeros(window_shape[1:], dtype=np.uint32)
                 bounds = window_bounds(window, transform)
+                seam_samples: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                 candidates = (
                     source_index
                     for column_start, column_stop, source_index in row_source_index.get(
@@ -537,6 +702,9 @@ def mosaic_sources(
                     )
                     source_window_reads += 1
                     source_data = np.ma.getdata(source)
+                    if band_offsets is not None:
+                        source_data = source_data.astype(np.float32, copy=True)
+                        source_data -= band_offsets[source_index].astype(np.float32)[:, None, None]
                     source_valid = ~np.ma.getmaskarray(source)
                     if np.issubdtype(source_data.dtype, np.floating):
                         source_valid &= np.isfinite(source_data)
@@ -564,11 +732,27 @@ def mosaic_sources(
                         source_metric["overlap_absolute_error_sum"] += error_sum
 
                     take = source_valid & ~valid
-                    source_metric["contributed_valid_pixels"] += int(
-                        np.count_nonzero(np.any(take, axis=0))
-                    )
+                    if seam_ramp_m is None:
+                        source_metric["contributed_valid_pixels"] += int(
+                            np.count_nonzero(np.any(take, axis=0))
+                        )
+                    else:
+                        seam_samples.append(
+                            (source_index, source_data, source_valid, source_pixel_valid)
+                        )
                     np.copyto(output, source_data, where=take)
                     valid |= take
+                if seam_samples:
+                    output, valid, contributions = _apply_seam(
+                        seam_samples,
+                        details,
+                        transform,
+                        window,
+                        seam_ramp_m,
+                        dtype,
+                    )
+                    for source_index, contributed in contributions:
+                        per_source[source_index]["contributed_valid_pixels"] += contributed
                 _write_window(destination, output, valid, window)
                 window_valid_pixels = int(np.count_nonzero(source_coverage_count))
                 valid_pixels += window_valid_pixels
@@ -639,6 +823,8 @@ def mosaic_sources(
                 "source_valid_pixels": "Destination pixels valid in each reprojected source.",
                 "contributed_valid_pixels": (
                     "Destination pixels where a source supplied at least one first-valid band."
+                    if seam_ramp_m is None
+                    else "Destination pixels where a source received nonzero seam-ramp weight."
                 ),
                 "duplicate_valid_observations": (
                     "Source-valid pixel observations beyond the first at each destination pixel."
@@ -716,6 +902,10 @@ def mosaic_sources(
         "output_size_bytes": out.stat().st_size,
         "dst_crs": str(rasterio.crs.CRS.from_user_input(dst_crs)),
         "resolution": resolution,
+        "merge": "first-valid-source" if seam_ramp_m is None else "seam-ramp",
+        "seam_ramp_m": seam_ramp_m,
+        "harmonize_overlaps": harmonize_overlaps,
+        "overlap_offsets": None if band_offsets is None else np.asarray(band_offsets).tolist(),
         "width": width,
         "height": height,
         "count": count,
@@ -780,6 +970,17 @@ def main() -> None:
         type=float,
         help="Fail when the fraction of uncovered output pixels exceeds this value.",
     )
+    parser.add_argument(
+        "--seam-ramp-m",
+        type=float,
+        default=None,
+        help="Blend granule overlaps across this width, centred on the medial boundary.",
+    )
+    parser.add_argument(
+        "--harmonize-overlaps",
+        action="store_true",
+        help="Subtract a per-granule RGB offset estimated from the overlaps before blending.",
+    )
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--no-validate", action="store_true")
     parser.add_argument(
@@ -818,6 +1019,8 @@ def main() -> None:
         resume=not args.no_resume,
         max_overlap_mae=args.max_overlap_mae,
         max_nodata_fraction=args.max_nodata_fraction,
+        seam_ramp_m=args.seam_ramp_m,
+        harmonize_overlaps=args.harmonize_overlaps,
     )
     action = "Reused" if summary.get("resumed") else "Wrote"
     print(f"{action} cross-granule mosaic {out}")

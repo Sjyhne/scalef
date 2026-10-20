@@ -44,7 +44,8 @@ def main() -> None:
     caption = (
         r"Selected $4{\times}128^2$ update configuration on complete $5.12\,\mathrm{km}$ fields "
         r"(blur halo, LR-only stopping with patience~$8$, seed~$6$), each scored under its own LR512 correction "
-        r"shared with bilinear. Scoring protocol as for the named sites: floating-point outputs in surface "
+        r"shared with bilinear. Full-field OmniCloudMask loss masks, clear-pixel base-frame statistics, and a "
+        r"clear-pixel histogram match, as for the named-site benchmark. Floating-point outputs in surface "
         r"reflectance (offset removed) with masked SSIM and LPIPS. "
         f"Means per site; overall LPIPS ${arr(rows, 'lpips_model').mean():.3f}$ against "
         f"${arr(rows, 'lpips_bilinear').mean():.3f}$ for bilinear, gain ${lp_gain.mean():+.3f}$ "

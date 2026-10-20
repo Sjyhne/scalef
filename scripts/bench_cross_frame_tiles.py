@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Asker: within-frame k2 vs cross-frame (tile×frame) fused sampling.
+"""Within-frame K tiles vs the same K drawn from random frames.
 
-Same fuse size as k2/k4; only the (spatial, frame) index changes.
+The control is the current K=4 recipe: 128-pixel windows, four per step, all
+from the frame the loader just yielded. ``cross_iid_k4`` keeps that fuse size
+and draws each window from an independent frame, with that frame's affine and
+color. Stopping, loss, and halo match the confirmatory K=4 fits.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # name -> CLI extras (beyond matched holdout / charbonnier recipe)
 VARIANTS = {
     "full": [],
+    "within_k4": ["--lr_tile", "128", "--lr_tiles_per_step", "4", "--lr_tile_mix", "within"],
     "within_k2": ["--lr_tile", "128", "--lr_tiles_per_step", "2", "--lr_tile_mix", "within"],
     "cross_epoch_k2": [
         "--lr_tile",
@@ -107,15 +111,29 @@ def _base_cmd(city: str, variant: str, device: int, iters: int) -> list[str]:
         "--early_stop_metric",
         "holdout_mse",
         "--early_stop_patience",
-        "3",
+        "8",
         "--early_stop_min_iters",
         "1000",
+        "--eval_every",
+        "200",
         "--iters",
         str(iters),
         "--device",
         str(device),
+        "--seed",
+        "6",
         "--spatial_holdout",
         "0.1",
+        "--holdout_block",
+        "0",
+        "--hr_render_tile",
+        "2048",
+        "--lr_stats_pixels",
+        "all",
+        "--lr_tile_halo",
+        "-1",
+        "--lr_degradation",
+        "s2_psf_m",
         "--spatial_alignment_path",
         str(ROOT / "eval" / "spatial_alignment.json"),
         "--no_qgis_export",
@@ -163,9 +181,18 @@ def _run_variant(
     return _summarize(city, variant, mpath, skipped=False)
 
 
+PAPER7 = ("asker", "bergen", "rana", "tromso", "amli", "vennesla", "trondheim")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--city", default="asker")
+    p.add_argument(
+        "--cities",
+        nargs="+",
+        default=None,
+        help="Sites to run. 'paper7' expands to the ablation panel.",
+    )
     p.add_argument("--iters", type=int, default=5000)
     p.add_argument("--gpus", type=int, default=6)
     p.add_argument("--gpu-offset", type=int, default=0)
@@ -182,11 +209,20 @@ def main() -> None:
         default=ROOT / "single_samples" / "sweep_results" / "bench_cross_frame_tiles.json",
     )
     args = p.parse_args()
+    if args.cities:
+        cities: list[str] = []
+        for name in args.cities:
+            cities.extend(PAPER7 if name == "paper7" else (name,))
+    else:
+        cities = [args.city]
 
     jobs = []
-    for i, variant in enumerate(args.variants):
-        device = args.gpu_offset + (i % args.gpus)
-        jobs.append((args.city, variant, device))
+    n = 0
+    for city in cities:
+        for variant in args.variants:
+            device = args.gpu_offset + (n % args.gpus)
+            jobs.append((city, variant, device))
+            n += 1
 
     rows = []
     with ThreadPoolExecutor(max_workers=args.gpus) as ex:
@@ -211,42 +247,58 @@ def main() -> None:
                 print(f"FAIL {city}/{variant}: {e}", flush=True)
                 raise
 
-    rows.sort(key=lambda r: r["variant"])
-    by_name = {r["variant"]: r for r in rows}
-    full = by_name.get("full")
-    comparisons = []
-    if full is not None:
-        for r in rows:
-            if r["variant"] == "full":
+    rows.sort(key=lambda r: (r["city"], r["variant"]))
+    by_city: dict[str, dict[str, dict]] = {}
+    for r in rows:
+        by_city.setdefault(r["city"], {})[r["variant"]] = r
+
+    def _delta(rows_for_city: dict[str, dict], base: str) -> list[dict]:
+        ref = rows_for_city.get(base)
+        if ref is None:
+            return []
+        out_rows = []
+        for name, r in rows_for_city.items():
+            if name == base:
                 continue
-            d_lpips = float(r["audit_lpips"]) - float(full["audit_lpips"])
-            comparisons.append(
+            out_rows.append(
                 {
-                    "variant": r["variant"],
+                    "city": r["city"],
+                    "variant": name,
                     "lpips": r["audit_lpips"],
-                    "lpips_delta_vs_full": d_lpips,
+                    "lpips_delta": float(r["audit_lpips"]) - float(ref["audit_lpips"]),
                     "time_s": r["training_time_s"],
-                    "time_ratio_vs_full": (
-                        float(r["training_time_s"]) / float(full["training_time_s"])
-                        if full["training_time_s"]
+                    "time_ratio": (
+                        float(r["training_time_s"]) / float(ref["training_time_s"])
+                        if ref["training_time_s"]
                         else None
                     ),
                     "peak_gb": r["peak_memory_gb"],
                     "best_iter": r["best_iter"],
+                    "base_lpips": ref["audit_lpips"],
+                    "base_time_s": ref["training_time_s"],
                 }
             )
+        return out_rows
+
+    vs_within = []
+    vs_full = []
+    for city_rows in by_city.values():
+        vs_within.extend(_delta(city_rows, "within_k4"))
+        vs_full.extend(_delta(city_rows, "full"))
 
     out = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "city": args.city,
+        "cities": cities,
         "iters_budget": args.iters,
+        "recipe": "confirmatory K=4 flags; only lr_tile_mix changes",
         "rows": rows,
-        "vs_full": comparisons,
+        "vs_within_k4": vs_within,
+        "vs_full": vs_full,
     }
     out_path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2))
-    print(json.dumps(out.get("vs_full"), indent=2))
+    print(json.dumps(out.get("vs_within_k4") or out.get("vs_full"), indent=2))
     print(f"Wrote {out_path}")
 
 

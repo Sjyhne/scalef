@@ -306,6 +306,7 @@ def generate_jobs(
     gpu_list: tuple[int, ...] | None = None,
     s2_boa_offset: str = "keep",
     save_float_outputs: bool = False,
+    spatial_holdout: float | None = None,
 ) -> list[Job]:
     if not families:
         raise ValueError("at least one family is required")
@@ -380,6 +381,11 @@ def generate_jobs(
         extra = [("--num_samples", str(requested_frames))]
         if s2_boa_offset != "keep":
             extra.append(("--s2_boa_offset", s2_boa_offset))
+        if spatial_holdout is not None:
+            # Later flags override BASE_FLAGS. Patience 0 matches a fixed budget:
+            # with no held-out blocks there is no validation score to stop on.
+            extra.append(("--spatial_holdout", f"{float(spatial_holdout):g}"))
+            extra.append(("--early_stop_patience", "0"))
         _append_flags(argv, _merge_flags(BASE_FLAGS, config.flags, tuple(extra)))
         jobs.append(
             Job(
@@ -497,6 +503,15 @@ def _parse_args() -> argparse.Namespace:
         help="Skip only jobs whose confirmatory_v1 metrics.json already exists.",
     )
     parser.add_argument("--s2-boa-offset", choices=("keep", "remove"), default="keep")
+    parser.add_argument(
+        "--spatial-holdout",
+        type=float,
+        default=None,
+        help=(
+            "Override the 0.1 block holdout. 0 trains every clear pixel and "
+            "runs the full --iters budget."
+        ),
+    )
     parser.add_argument("--save-float-outputs", action="store_true",
                         help="Export GeoTIFF predictions, reference, and bilinear (omit --no_qgis_export).")
     parser.add_argument("--eval-manifest", type=Path, default=DEFAULT_EVAL_MANIFEST)
@@ -533,6 +548,7 @@ def main() -> None:
         gpu_list=tuple(args.gpu_list) if args.gpu_list else None,
         s2_boa_offset=args.s2_boa_offset,
         save_float_outputs=args.save_float_outputs,
+        spatial_holdout=args.spatial_holdout,
     )
     out = args.manifest_out.resolve()
     _write_manifest(

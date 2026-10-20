@@ -7,13 +7,13 @@
     "iso_a3": "DNK"
   },
   "inputs": {
-    "land_outline_geojson": "production/country_inventory/denmark/denmark_land_outline_ne50m.geojson",
+    "land_outline_geojson": "production/country_inventory/denmark/denmark_land_outline_ne10m.geojson",
     "land_outline_provenance": {
       "dataset": "Natural Earth Admin-0 Countries",
-      "scale": "1:50m",
-      "source_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson",
-      "source_sha256": "3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb",
-      "scope_note": "Extracted Denmark proper; Faroe Islands and Greenland are excluded."
+      "scale": "1:10m",
+      "source_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_admin_0_countries.geojson",
+      "source_sha256": "239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255",
+      "scope_note": "Extracted Denmark proper; Faroe Islands and Greenland are excluded. The 1:10m coast replaces 1:50m, which sat inland of real shore."
     }
   },
   "inventory": {
@@ -54,7 +54,7 @@
     "max_stac_cloud": 100.0,
     "min_land_frac": 0.0,
     "mainland_only": true,
-    "land_mask": "production/country_inventory/denmark/denmark_land_outline_ne50m.geojson",
+    "land_mask": "production/country_inventory/denmark/denmark_land_outline_ne10m.geojson",
     "iters": 5000
   },
   "production": {

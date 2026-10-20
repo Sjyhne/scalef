@@ -212,3 +212,65 @@ def test_reprojects_crs_onto_requested_resolution_grid(tmp_path):
     assert metadata["source_details"][0]["crs"] == "EPSG:4326"
     assert metadata["source_crs"]["all_same"] is False
     assert metadata["source_crs"]["unique_crs"] == ["EPSG:3857", "EPSG:4326"]
+
+
+def _write_float(path: Path, value: float, *, x0: float, width: int = 16) -> None:
+    data = np.full((1, 16, width), value, dtype=np.float32)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=width,
+        height=16,
+        count=1,
+        dtype="float32",
+        crs="EPSG:3857",
+        transform=from_origin(x0, 16, 1, 1),
+        nodata=0,
+    ) as dst:
+        dst.write(data)
+
+
+def test_seam_ramp_blends_the_overlap_midline_and_matches_level(tmp_path):
+    left = tmp_path / "left.tif"
+    right = tmp_path / "right.tif"
+    _write_float(left, 0.10, x0=0)
+    _write_float(right, 0.14, x0=8)
+    out = tmp_path / "seamed.tif"
+
+    metadata = national.mosaic_sources(
+        [left, right],
+        out,
+        dst_crs="EPSG:3857",
+        resolution=1,
+        block_size=16,
+        seam_ramp_m=4,
+        harmonize_overlaps=True,
+    )
+
+    with rasterio.open(out) as src:
+        data = src.read(1)
+    # After the offset, both sides share a level, so the ramp does not reintroduce a step.
+    assert np.allclose(data[:, :8], 0.10, atol=1e-5)
+    assert np.allclose(data[:, 16:], 0.10, atol=1e-5)
+    assert np.allclose(data[:, 12], 0.10, atol=1e-4)
+    assert metadata["merge"] == "seam-ramp"
+    assert metadata["seam_ramp_m"] == 4
+    offsets = np.asarray(metadata["overlap_offsets"])
+    assert offsets.shape == (2, 1)
+    assert abs(float(offsets[1, 0]) - 0.04) < 1e-3
+
+    hard = tmp_path / "unmatched.tif"
+    national.mosaic_sources(
+        [left, right],
+        hard,
+        dst_crs="EPSG:3857",
+        resolution=1,
+        block_size=16,
+        seam_ramp_m=4,
+    )
+    with rasterio.open(hard) as src:
+        raw = src.read(1)
+    assert raw[8, 4] == pytest.approx(0.10, abs=1e-5)
+    assert raw[8, 20] == pytest.approx(0.14, abs=1e-5)
+    assert 0.10 < raw[8, 12] < 0.14

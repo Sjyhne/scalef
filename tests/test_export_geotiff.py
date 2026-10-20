@@ -18,6 +18,8 @@ def test_default_clip_is_unit_range(tmp_path):
     p = write_rgb_geotiff(tmp_path / "a.tif", img, transform=from_origin(0, 4, 1, 1), crs="EPSG:32632")
     data = _read(p)
     assert data.min() == 0.0 and data.max() == 1.0
+    with rasterio.open(p) as src:
+        assert src.tags(ns="IMAGE_STRUCTURE").get("LAYOUT") == "COG"
 
 
 def test_offset_removed_layers_keep_negative_reflectance(tmp_path):
@@ -27,7 +29,11 @@ def test_offset_removed_layers_keep_negative_reflectance(tmp_path):
     )
     pred = np.full((4, 4, 3), -0.03, np.float32)
     pred[0, 0] = -0.4
+    pred[0, 1] = 1.25
+    pred[0, 2] = 1.60
     written = export_qgis_layers(tmp_path, sr_pred_hwc=pred, s2_bilinear_hwc=pred, dataset=ds)
     data = _read(written["sr_pred.tif"])
     assert np.isclose(data[:, 1, 1], -0.03).all()
     assert np.isclose(data[:, 0, 0], -0.1).all()
+    assert np.isclose(data[:, 0, 1], 1.25).all()
+    assert np.isclose(data[:, 0, 2], 1.4).all()

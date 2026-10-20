@@ -27,9 +27,11 @@ def replace_arg(cmd: list[str], flag: str, value: str) -> list[str]:
     return cmd[: i + 1] + [value] + cmd[i + 2:]
 
 
-def build_jobs(screen_path: Path, namespace: str, stack_root: Path | None = None) -> list[dict]:
+def build_jobs(screen_path: Path, namespace: str, stack_root: Path | None = None,
+               set_args: dict[str, str] | None = None) -> list[dict]:
     """With ``stack_root``, fit the rebuilt stacks there (kept + replacement frames, masks set in
-    their meta.json) instead of screening the v5 stacks at load time."""
+    their meta.json) instead of screening the v5 stacks at load time. ``set_args`` overrides or
+    appends ``--flag value`` pairs (e.g. clear-pixel statistics and harmonization)."""
     screen = json.loads(screen_path.read_text())["stacks"]
     jobs = []
     for job in json.loads(V5_MANIFEST.read_text())["jobs"]:
@@ -51,6 +53,8 @@ def build_jobs(screen_path: Path, namespace: str, stack_root: Path | None = None
             cmd = replace_arg(cmd, "--s2-dir", s2_dir)
         cmd = replace_arg(cmd, "--num_samples", str(n_frames))
         cmd += ["--force_base_date", base_date]
+        for flag, value in (set_args or {}).items():
+            cmd = replace_arg(cmd, flag, value) if flag in cmd else cmd + [flag, value]
         jobs.append({
             "job_id": run_name, "run_name": run_name, "city": job["city"], "seed": job["seed"],
             "v5_run_name": job["run_name"], "base_date": base_date, "s2_dir": s2_dir,
@@ -68,15 +72,20 @@ def main() -> None:
     ap.add_argument("--gpus", default="0,1,2,3,5,6")
     ap.add_argument("--stack_root", type=Path, default=None,
                     help="fit rebuilt stacks under this root (scripts/fetch_screened_replacements.py)")
+    ap.add_argument("--set", nargs=2, action="append", metavar=("FLAG", "VALUE"), default=[],
+                    help="override/append an optimize.py flag (no leading dashes), e.g. --set lr_stats_pixels clear")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
 
-    jobs = build_jobs(args.screen.resolve(), args.namespace, args.stack_root.resolve() if args.stack_root else None)
+    set_args = {f"--{flag.lstrip('-')}": value for flag, value in args.set}
+    jobs = build_jobs(args.screen.resolve(), args.namespace, args.stack_root.resolve() if args.stack_root else None,
+                      set_args)
     log_dir = ROOT / "logs" / args.namespace
     log_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = ROOT / f"paper/results/run_manifests/{args.namespace}__run_manifest.json"
     manifest = {"schema": "screened_refits_v1", "namespace": args.namespace, "parent": V5_NS,
                 "screen": str(args.screen), "stack_root": str(args.stack_root) if args.stack_root else None,
+                "set_args": set_args,
                 "created_utc": datetime.now(timezone.utc).isoformat(), "jobs": jobs}
     manifest_path.write_text(json.dumps(manifest, indent=2))
     todo = [j for j in jobs if not Path(j["expected_metrics_path"]).is_file()]

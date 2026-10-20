@@ -2,7 +2,7 @@
 """Representative SSIM failure (Åmli) beside a typical success (Asker) from ``analyze_ssim_failure.py``.
 
 Each site shows its median-ΔSSIM 128x128 block (320 m) as LR base frame, bilinear, ScaleF, and NIB,
-once with the fixed display mapping (0-0.4) and once with a dark display range (0-0.1) applied
+once with the paper stretch (linear, 0-0.25) and once with a dark display range (linear, 0-0.1) applied
 identically to all four panels, followed by the per-pixel SSIM difference (ScaleF minus bilinear)
 and the local-mean error of ScaleF against the reference (Gaussian sigma 1.5, the SSIM window).
 """
@@ -22,11 +22,12 @@ from scipy.ndimage import gaussian_filter  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from eval.display import highlight_compress  # noqa: E402
+from eval.display import linear_stretch  # noqa: E402
 
 SRC = ROOT / "paper" / "results" / "ssim_failure"
 OUT = ROOT / "ScaleF_Overleaf" / "generated" / "figures" / "ssim_failure_success"
 DARK_MAX = 0.1
+PAPER_MAX = 0.25
 LABELS = {"amli": "\u00c5mli (failure)", "asker": "Asker (success)"}
 
 plt.rcParams.update({"font.family": "serif", "font.size": 7, "pdf.fonttype": 42, "ps.fonttype": 42})
@@ -52,10 +53,10 @@ def main() -> None:
         panels = (lr, z["bilinear"], z["model"], z["reference"])
         d_ssim = z["ssim_model"] - z["ssim_bilinear"]
         d_mean = local_mean(z["model"]) - local_mean(z["reference"])
-        for r, vmax in enumerate((0.4, DARK_MAX)):
+        for r, vmax in enumerate((PAPER_MAX, DARK_MAX)):
             row = 2 * i + r
             for c, img in enumerate(panels):
-                axes[row, c].imshow(highlight_compress(img, 0.0, vmax), interpolation="nearest")
+                axes[row, c].imshow(linear_stretch(img, 0.0, vmax), interpolation="nearest")
             if r == 0:
                 im1 = axes[row, 4].imshow(d_ssim, cmap="RdBu", vmin=-0.4, vmax=0.4, interpolation="nearest")
                 im2 = axes[row, 5].imshow(d_mean, cmap="PuOr_r", vmin=-0.03, vmax=0.03, interpolation="nearest")
@@ -88,7 +89,7 @@ def main() -> None:
     fig.savefig(OUT.with_suffix(".pdf"), bbox_inches="tight")
     fig.savefig(OUT.with_suffix(".png"), dpi=220, bbox_inches="tight")
     plt.close(fig)
-    OUT.with_suffix(".json").write_text(json.dumps({"display": ["highlight_compress(0, 0.4)", f"highlight_compress(0, {DARK_MAX})"],
+    OUT.with_suffix(".json").write_text(json.dumps({"display": [f"linear stretch 0-{PAPER_MAX}", f"linear stretch 0-{DARK_MAX}"],
                                                     "rows": meta}, indent=1) + "\n")
     print(f"wrote {OUT.with_suffix('.pdf')}")
 

@@ -107,6 +107,140 @@ def land_hit_frac(paths: list[MplPath], lonlat: np.ndarray) -> float:
     return hits / float(len(lonlat))
 
 
+def window_lonlat_corners(
+    transform,
+    crs,
+    *,
+    row0: int,
+    col0: int,
+    side: int,
+) -> np.ndarray:
+    """Return the four outer corners of an LR window as (4, 2) lon/lat, in ring order."""
+    rows = np.array([row0, row0, row0 + side, row0 + side], dtype=float)
+    cols = np.array([col0, col0 + side, col0 + side, col0], dtype=float)
+    xs, ys = xy(transform, rows, cols, offset="ul")
+    if crs is None:
+        raise ValueError("raster CRS is required to map LR windows to lon/lat")
+    lons, lats = warp_xy(crs, "EPSG:4326", xs, ys)
+    return np.column_stack([np.asarray(lons, float), np.asarray(lats, float)])
+
+
+def _cross(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _segments_intersect(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    d: tuple[float, float],
+) -> bool:
+    """True when segments ab and cd touch, including a shared endpoint."""
+    eps = 1e-12
+    c1 = _cross(a, b, c)
+    c2 = _cross(a, b, d)
+    c3 = _cross(c, d, a)
+    c4 = _cross(c, d, b)
+
+    def _on(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> bool:
+        return (
+            min(p[0], r[0]) - eps <= q[0] <= max(p[0], r[0]) + eps
+            and min(p[1], r[1]) - eps <= q[1] <= max(p[1], r[1]) + eps
+        )
+
+    if abs(c1) <= eps and _on(a, c, b):
+        return True
+    if abs(c2) <= eps and _on(a, d, b):
+        return True
+    if abs(c3) <= eps and _on(c, a, d):
+        return True
+    if abs(c4) <= eps and _on(c, b, d):
+        return True
+    return (c1 > 0) != (c2 > 0) and (c3 > 0) != (c4 > 0)
+
+
+def window_intersects_land(paths: list[MplPath], corners: np.ndarray) -> bool:
+    """True when the window quadrilateral touches any land ring, including a thin sliver.
+
+    A point grid can miss a shoreline that only clips a corner. Overlap is the
+    window itself: a corner on land, a land vertex inside the window, or an edge
+    crossing the window boundary.
+    """
+    if not paths or len(corners) != 4:
+        return False
+    lon0, lat0 = (float(v) for v in corners.min(axis=0))
+    lon1, lat1 = (float(v) for v in corners.max(axis=0))
+    quad = MplPath(np.vstack([corners, corners[0]]))
+    edges = [
+        (
+            (float(corners[i, 0]), float(corners[i, 1])),
+            (float(corners[(i + 1) % 4, 0]), float(corners[(i + 1) % 4, 1])),
+        )
+        for i in range(4)
+    ]
+    for path in paths:
+        verts = np.asarray(path.vertices, dtype=float)
+        if (
+            float(verts[:, 0].max()) < lon0
+            or float(verts[:, 0].min()) > lon1
+            or float(verts[:, 1].max()) < lat0
+            or float(verts[:, 1].min()) > lat1
+        ):
+            continue
+        if any(path.contains_point((float(lon), float(lat))) for lon, lat in corners):
+            return True
+        if bool(quad.contains_points(verts).any()):
+            return True
+        for i in range(len(verts) - 1):
+            a = (float(verts[i, 0]), float(verts[i, 1]))
+            b = (float(verts[i + 1, 0]), float(verts[i + 1, 1]))
+            if (
+                max(a[0], b[0]) < lon0
+                or min(a[0], b[0]) > lon1
+                or max(a[1], b[1]) < lat0
+                or min(a[1], b[1]) > lat1
+            ):
+                continue
+            if any(_segments_intersect(a, b, c, d) for c, d in edges):
+                return True
+    return False
+
+
+def assess_window_land(
+    land_paths: list[MplPath] | None,
+    transform,
+    crs,
+    *,
+    row0: int,
+    col0: int,
+    side: int,
+    sample_n: int = 9,
+    min_land_frac: float = 0.0,
+) -> tuple[float, bool]:
+    """Return (land fraction, keep).
+
+    ``min_land_frac <= 0`` keeps any real overlap. The sample grid still supplies
+    the fraction, but a shoreline sliver that falls between samples is kept too.
+    """
+    n = max(2, int(sample_n))
+    samples = window_lonlat_samples(
+        transform, crs, row0=row0, col0=col0, side=side, n=n
+    )
+    if land_paths is None:
+        return 1.0, True
+    frac = land_hit_frac(land_paths, samples)
+    if float(min_land_frac) <= 0.0:
+        ok = frac > 0.0
+        if not ok and window_intersects_land(
+            land_paths,
+            window_lonlat_corners(transform, crs, row0=row0, col0=col0, side=side),
+        ):
+            ok = True
+            frac = 1.0 / float(n * n)
+        return frac, ok
+    return frac, frac >= float(min_land_frac)
+
+
 def clear_count_at(
     clear_tif: Path,
     *,
@@ -158,13 +292,18 @@ def filter_tile_specs(
         row0 = int(tile["row_off"])
         col0 = int(tile["col_off"])
         tile_side = int(tile.get("side", side))
+        frac, land_ok = assess_window_land(
+            land_paths,
+            transform,
+            crs,
+            row0=row0,
+            col0=col0,
+            side=tile_side,
+            sample_n=sample_n,
+            min_land_frac=min_land_frac,
+        )
         samples = window_lonlat_samples(
             transform, crs, row0=row0, col0=col0, side=tile_side, n=sample_n
-        )
-        frac = land_hit_frac(land_paths, samples) if land_paths is not None else 1.0
-        # min_land_frac == 0 → any positive overlap (at least one sample).
-        land_ok = True if land_paths is None else (
-            frac > 0.0 if min_land_frac <= 0.0 else frac >= min_land_frac
         )
 
         clear_n = None
@@ -290,7 +429,7 @@ def main() -> None:
         "--min-land-frac",
         type=float,
         default=0.0,
-        help="Min fraction of window samples on land (0 = any overlap).",
+        help="Min fraction of the window on land (0 = any geometric overlap).",
     )
     ap.add_argument("--sample-n", type=int, default=9, help="n×n samples per LR window.")
     ap.add_argument(

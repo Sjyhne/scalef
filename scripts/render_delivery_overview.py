@@ -18,7 +18,7 @@ from rasterio.enums import Resampling
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from eval.display import highlight_compress  # noqa: E402
+from eval.display import highlight_compress, linear_stretch  # noqa: E402
 
 
 def _read_overview(path: Path, side: int) -> np.ndarray:
@@ -50,12 +50,14 @@ def render(
     before_title: str = "independent 2% identity",
     after_title: str = "ICM identity + date-cut ramp",
     figure_title: str | None = None,
-    tone: str = "highlight",
+    tone: str = "linear",
     reflectance_offset: float = 0.0,
 ) -> None:
     before = _remove_offset(_read_overview(before_path, side), reflectance_offset)
     after = _remove_offset(_read_overview(after_path, side), reflectance_offset)
-    if tone == "stretch":
+    if tone == "linear":
+        display = linear_stretch
+    elif tone == "stretch":
         values = np.concatenate(
             [
                 before[np.any(before > 0, axis=2)],
@@ -95,7 +97,8 @@ def main() -> None:
     parser.add_argument("--before-title", default="independent 2% identity")
     parser.add_argument("--after-title", default="ICM identity + date-cut ramp")
     parser.add_argument("--figure-title", default=None)
-    parser.add_argument("--tone", choices=("highlight", "stretch"), default="highlight")
+    parser.add_argument("--tone", choices=("linear", "highlight", "stretch"), default="linear",
+                        help="linear is reflectance 0-0.25; highlight is HighlightCompress 0-0.4; stretch is a shared 2-98 percentile.")
     parser.add_argument("--reflectance-offset", type=float, default=0.0,
                         help="BOA_ADD_OFFSET carried by the mosaics (0.1 for processing baseline >= 04.00).")
     args = parser.parse_args()

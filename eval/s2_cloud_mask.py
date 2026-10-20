@@ -66,6 +66,21 @@ def clear_from_cloud_mask(mask: np.ndarray) -> np.ndarray:
     return arr <= 0
 
 
+def clear_train_masks(clear: torch.Tensor) -> list[torch.Tensor]:
+    """Per-frame train masks that keep every clear pixel.
+
+    ``clear`` is ``[N,H,W]`` bool (True = clear). Each mask is ``[1,H,W,1]``
+    bool (True = train). No spatial block is removed.
+    """
+    if clear.ndim != 3:
+        raise ValueError(f"clear must be [N,H,W], got {tuple(clear.shape)}")
+    masks: list[torch.Tensor] = []
+    for i in range(int(clear.shape[0])):
+        c = clear[i].to(dtype=torch.bool)
+        masks.append(c.view(1, int(c.shape[0]), int(c.shape[1]), 1))
+    return masks
+
+
 def apply_clear_to_holdout_masks(
     holdout_masks: list[torch.Tensor],
     clear: torch.Tensor,

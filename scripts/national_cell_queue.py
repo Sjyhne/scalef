@@ -90,7 +90,7 @@ def land_cell_mask(
     min_land_frac: float = 0.0,
     sample_n: int = 9,
 ) -> np.ndarray:
-    from scripts.land_mask_lr512 import land_hit_frac, window_lonlat_samples
+    from scripts.land_mask_lr512 import assess_window_land
 
     out = np.zeros((n_y, n_x), dtype=bool)
     if land_paths is None:
@@ -98,18 +98,17 @@ def land_cell_mask(
         return out
     for iy in range(int(n_y)):
         for ix in range(int(n_x)):
-            samples = window_lonlat_samples(
+            _frac, keep = assess_window_land(
+                land_paths,
                 transform,
                 crs,
                 row0=iy * side,
                 col0=ix * side,
                 side=side,
-                n=sample_n,
+                sample_n=sample_n,
+                min_land_frac=min_land_frac,
             )
-            frac = land_hit_frac(land_paths, samples)
-            out[iy, ix] = (
-                frac > 0.0 if float(min_land_frac) <= 0.0 else frac >= float(min_land_frac)
-            )
+            out[iy, ix] = keep
     return out
 
 

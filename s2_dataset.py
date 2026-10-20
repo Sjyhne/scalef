@@ -190,28 +190,53 @@ PROCESSING_BASELINES = Path(__file__).resolve().parent / "data" / "s2_revisits" 
 _BASELINE_CACHE: dict[str, str | None] | None = None
 
 
-def boa_add_offset(stac_id: str) -> float:
+def offset_from_baseline(baseline: str) -> float:
+    """Reflectance offset for one processing baseline (0.1 from 04.00 onward)."""
+    major, minor = (int(p) for p in str(baseline).split("."))
+    return 0.1 if (major, minor) >= (4, 0) else 0.0
+
+
+def record_processing_baseline(stac_id: str, baseline: str | None) -> None:
+    """Remember one product's baseline so later fits can remove the BOA offset."""
+    global _BASELINE_CACHE
+    if _BASELINE_CACHE is None:
+        _BASELINE_CACHE = (
+            json.loads(PROCESSING_BASELINES.read_text()) if PROCESSING_BASELINES.is_file() else {}
+        )
+    _BASELINE_CACHE[stac_id] = baseline
+    PROCESSING_BASELINES.parent.mkdir(parents=True, exist_ok=True)
+    PROCESSING_BASELINES.write_text(json.dumps(dict(sorted(_BASELINE_CACHE.items())), indent=1) + "\n")
+
+
+def boa_add_offset(stac_id: str, baseline: str | None = None) -> float:
     """Reflectance offset to subtract for one L2A product (0.1 for processing baseline >= 04.00).
 
     Baselines from 04.00 onward store DN = 10000 * reflectance + 1000 (BOA_ADD_OFFSET = -1000).
+    ``baseline`` is the product's ``s2:processing_baseline`` when the caller already has it.
     """
     global _BASELINE_CACHE
-    if _BASELINE_CACHE is None:
-        if not PROCESSING_BASELINES.is_file():
-            raise FileNotFoundError(f"{PROCESSING_BASELINES} missing; run scripts/cache_processing_baselines.py")
-        _BASELINE_CACHE = json.loads(PROCESSING_BASELINES.read_text())
-    if stac_id not in _BASELINE_CACHE or _BASELINE_CACHE[stac_id] is None:
+    if not baseline:
+        if _BASELINE_CACHE is None:
+            if not PROCESSING_BASELINES.is_file():
+                raise FileNotFoundError(
+                    f"{PROCESSING_BASELINES} missing; run scripts/cache_processing_baselines.py"
+                )
+            _BASELINE_CACHE = json.loads(PROCESSING_BASELINES.read_text())
+        baseline = _BASELINE_CACHE.get(stac_id)
+    if not baseline:
         raise KeyError(f"no processing baseline cached for {stac_id}; run scripts/cache_processing_baselines.py")
-    major, minor = (int(p) for p in str(_BASELINE_CACHE[stac_id]).split("."))
-    return 0.1 if (major, minor) >= (4, 0) else 0.0
+    return offset_from_baseline(baseline)
+
+
+L2A_REFLECTANCE_CAP: float = 1.5
 
 
 def _l2a_to_reflectance(stack: np.ndarray) -> np.ndarray:
     arr = stack.astype(np.float32)
     peak = float(np.nanmax(arr)) if arr.size else 0.0
-    if peak > 1.5:
+    if peak > L2A_REFLECTANCE_CAP:
         arr = arr / 10000.0
-    return np.clip(np.nan_to_num(arr, nan=0.0), 0.0, 1.5)
+    return np.clip(np.nan_to_num(arr, nan=0.0), 0.0, L2A_REFLECTANCE_CAP)
 
 
 def _window_from_meta(aoi: dict):
@@ -397,6 +422,8 @@ def _apply_hr_spatial_shift(
     mask: np.ndarray,
     dy: float,
     dx: float,
+    *,
+    hi: float = L2A_REFLECTANCE_CAP,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Translate NIB HR (+ mask) onto the S2 grid for evaluation."""
     from scipy.ndimage import shift as ndi_shift
@@ -417,7 +444,7 @@ def _apply_hr_spatial_shift(
         cval=0.0,
         prefilter=False,
     ) > 0.5
-    hr_out = np.clip(hr_out.astype(np.float32), 0.0, 1.0)
+    hr_out = np.clip(hr_out.astype(np.float32), 0.0, float(hi))
     # Drop pixels that landed on empty after the shift.
     mask_out &= np.all(hr_out > 0, axis=-1)
     return hr_out, mask_out
@@ -522,11 +549,19 @@ def _index_to_front(index: int, n: int) -> list[int]:
     return [idx] + [i for i in range(n) if i != idx]
 
 
-def _harmonize_hr_histogram_match(hr_np: np.ndarray, base_lr: np.ndarray) -> np.ndarray:
+def _harmonize_hr_histogram_match(
+    hr_np: np.ndarray,
+    base_lr: np.ndarray,
+    ref_mask: np.ndarray | None = None,
+    *,
+    hi: float = L2A_REFLECTANCE_CAP,
+) -> np.ndarray:
     """SEN2NAIP cross-sensor harmonization: per-band histogram matching to S2.
 
     See Aybar et al., Scientific Data 2024 — match each NAIP/HR band to the
     reference S2 LR frame (closest in date to the NIB acquisition) before eval.
+    With ``ref_mask`` (H, W bool), only those base-frame pixels define the target
+    histogram, so cloud and shadow in the base frame do not stretch the reference.
     """
     from skimage.exposure import match_histograms
 
@@ -539,12 +574,14 @@ def _harmonize_hr_histogram_match(hr_np: np.ndarray, base_lr: np.ndarray) -> np.
     for c in range(int(hr_np.shape[-1])):
         src = hr_np[..., c]
         ref = base_lr[..., c]
+        if ref_mask is not None:
+            ref = ref[ref_mask].reshape(1, -1)  # skimage wants matching ndim
         valid = src > 0
         if not np.any(valid) or ref.size < 2:
             out[..., c] = src
             continue
         matched = match_histograms(src, ref, channel_axis=None)
-        out[..., c] = np.where(valid, np.clip(matched, 0.0, 1.0), 0.0)
+        out[..., c] = np.where(valid, np.clip(matched, 0.0, float(hi)), 0.0)
     return out
 
 
@@ -597,6 +634,24 @@ def _fit_affine_1d(x: np.ndarray, y: np.ndarray, *, trim_percentiles: tuple[floa
     return a, b
 
 
+def _source_window_for_dest(src, dst_crs, dst_transform, dst_h: int, dst_w: int, pad: int = 3):
+    """Source window covering a destination grid, padded for bilinear/nearest."""
+    from rasterio.transform import array_bounds
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window, from_bounds
+
+    left, bottom, right, top = array_bounds(dst_h, dst_w, dst_transform)
+    src_bounds = transform_bounds(dst_crs, src.crs, left, bottom, right, top, densify_pts=21)
+    raw = from_bounds(*src_bounds, transform=src.transform)
+    col0 = max(0, int(np.floor(raw.col_off)) - pad)
+    row0 = max(0, int(np.floor(raw.row_off)) - pad)
+    col1 = min(int(src.width), int(np.ceil(raw.col_off + raw.width)) + pad)
+    row1 = min(int(src.height), int(np.ceil(raw.row_off + raw.height)) + pad)
+    if col1 <= col0 or row1 <= row0:
+        return None
+    return Window(col0, row0, col1 - col0, row1 - row0)
+
+
 def _warp_rgb_to_grid(hr_path: Path | str, dst_crs, dst_transform, dst_h: int, dst_w: int):
     import rasterio
     from rasterio.warp import reproject, Resampling
@@ -605,28 +660,33 @@ def _warp_rgb_to_grid(hr_path: Path | str, dst_crs, dst_transform, dst_h: int, d
         count = min(3, int(src.count))
         rgb = np.zeros((count, dst_h, dst_w), dtype=np.float32)
         cover = np.zeros((dst_h, dst_w), dtype=np.uint8)
-        source = src.read(out_dtype="float32")[:count]
-        reproject(
-            source=source,
-            destination=rgb,
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=dst_transform,
-            dst_crs=dst_crs,
-            resampling=Resampling.bilinear,
-            src_nodata=src.nodata,
-            dst_nodata=0.0,
-        )
-        ones = np.ones((src.height, src.width), dtype=np.uint8)
-        reproject(
-            source=ones,
-            destination=cover,
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=dst_transform,
-            dst_crs=dst_crs,
-            resampling=Resampling.nearest,
-        )
+        # Read the source chip that covers this grid. A full read pulls the whole
+        # city orthophoto (tens of thousands of pixels) for every nested tile.
+        window = _source_window_for_dest(src, dst_crs, dst_transform, dst_h, dst_w)
+        if window is not None:
+            source = src.read(window=window, out_dtype="float32")[:count]
+            src_transform = src.window_transform(window)
+            reproject(
+                source=source,
+                destination=rgb,
+                src_transform=src_transform,
+                src_crs=src.crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=Resampling.bilinear,
+                src_nodata=src.nodata,
+                dst_nodata=0.0,
+            )
+            ones = np.ones(source.shape[-2:], dtype=np.uint8)
+            reproject(
+                source=ones,
+                destination=cover,
+                src_transform=src_transform,
+                src_crs=src.crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=Resampling.nearest,
+            )
         src_crs = src.crs
         src_bounds = src.bounds
     peak = float(rgb.max()) if rgb.size else 0.0
@@ -738,6 +798,24 @@ def _read_frame_clear(
 
 
 MIN_STATS_PIXELS = 256
+
+
+def apply_reflectance_ceiling(
+    clear: np.ndarray, rgb: np.ndarray, ceiling: float | None
+) -> np.ndarray:
+    """Drop pixels with any band above ``ceiling`` from a clear mask.
+
+    ``rgb`` is ``[H,W,3]`` DN/10000 reflectance. ``None`` leaves ``clear`` unchanged.
+    Specular solar panels can exceed 1 and still be marked clear by OmniCloudMask;
+    those pixels then set the per-frame standard deviation for the whole cell.
+    """
+    if ceiling is None:
+        return clear
+    limit = float(ceiling)
+    if not np.isfinite(limit) or limit <= 0:
+        raise ValueError(f"reflectance ceiling must be positive, got {ceiling!r}")
+    usable = np.all(np.asarray(rgb) <= limit, axis=-1)
+    return np.asarray(clear, dtype=bool) & usable
 
 
 def standardize_rgb_masked(
@@ -903,6 +981,19 @@ class S2NIBRevisitDataset(Dataset):
         if stats_mode not in {"clear", "all"}:
             raise ValueError(f"--lr_stats_pixels must be clear or all, got {stats_mode!r}")
         self.lr_stats_pixels = stats_mode
+        ceiling_raw = getattr(args, "lr_reflectance_ceiling", None)
+        self.lr_reflectance_ceiling = None if ceiling_raw is None else float(ceiling_raw)
+        if (
+            self.lr_reflectance_ceiling is not None
+            and (
+                not np.isfinite(self.lr_reflectance_ceiling)
+                or self.lr_reflectance_ceiling <= 0
+            )
+        ):
+            raise ValueError(
+                "--lr_reflectance_ceiling must be positive, "
+                f"got {self.lr_reflectance_ceiling!r}"
+            )
         self.lr_stats_masked = []
         boa_mode = str(getattr(args, "s2_boa_offset", "keep") or "keep")
         if boa_mode not in {"keep", "remove"}:
@@ -913,7 +1004,11 @@ class S2NIBRevisitDataset(Dataset):
             path = self.s2_dir / frame["path"]
             with rasterio.open(path) as src:
                 stack = src.read(window=crop_win)
-            self.s2_boa_offsets.append(boa_add_offset(frame["stac_id"]) if boa_mode == "remove" else 0.0)
+            self.s2_boa_offsets.append(
+                boa_add_offset(frame["stac_id"], frame.get("s2:processing_baseline"))
+                if boa_mode == "remove"
+                else 0.0
+            )
             refl = _l2a_to_reflectance(stack)
             rgb = np.transpose(refl[0:3], (1, 2, 0))
             nir = refl[3] if refl.shape[0] >= 4 else None
@@ -926,6 +1021,7 @@ class S2NIBRevisitDataset(Dataset):
                 dst_transform=self.lr_transform,
                 dst_crs=self.crs,
             )
+            clear = apply_reflectance_ceiling(clear, rgb, self.lr_reflectance_ceiling)
             rgb_t = torch.as_tensor(np.ascontiguousarray(rgb), dtype=torch.float32, device=self.device)
             stats_mask = None
             if stats_mode == "clear":
@@ -1037,11 +1133,22 @@ class S2NIBRevisitDataset(Dataset):
         # the S2 revisit closest in date to the NIB acquisition. Training uses all
         # LR revisits; eval compares denormalized model output against harmonized HR.
         self.hr_harmonize_method = None
+        harmonize_pixels = str(getattr(args, "hr_harmonize_pixels", "all") or "all").lower()
+        if harmonize_pixels not in {"clear", "all"}:
+            raise ValueError(f"--hr_harmonize_pixels must be clear or all, got {harmonize_pixels!r}")
+        self.hr_harmonize_pixels = "all"
         if self.has_hr_gt and not bool(getattr(args, "no_hr_harmonize", False)):
             try:
                 base_lr = self.lr_rgb[self.base_frame_index].detach().cpu().numpy()
+                ref_mask = None
+                if harmonize_pixels == "clear":
+                    ref_mask = self.lr_clear[self.base_frame_index].detach().cpu().numpy() & np.any(base_lr > 0, axis=-1)
+                    if int(np.count_nonzero(ref_mask)) < MIN_STATS_PIXELS:
+                        ref_mask = None  # same fallback as clear-pixel standardization
+                    else:
+                        self.hr_harmonize_pixels = "clear"
                 hr_np = self.original_hr.detach().cpu().numpy()  # [hr_h, hr_w, 3]
-                hr_np = _harmonize_hr_histogram_match(hr_np, base_lr)
+                hr_np = _harmonize_hr_histogram_match(hr_np, base_lr, ref_mask)
                 self.original_hr = torch.as_tensor(
                     np.ascontiguousarray(hr_np),
                     dtype=torch.float32,

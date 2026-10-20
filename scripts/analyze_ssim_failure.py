@@ -86,9 +86,11 @@ def main() -> None:
                if j["city"] == args_cli.city and int(j["seed"]) == args_cli.seed)
     args = get_argparser().parse_args(job["command"][2:])
     ds = get_dataset(args=args, name=args.dataset, training_device=torch.device("cpu"))
+    from s2_dataset import L2A_REFLECTANCE_CAP
+
     off = float(ds.eval_reflectance_offset)
     mask = ds.get_hr_eval_mask().cpu().numpy().astype(bool)
-    gt = np.clip(ds.get_original_hr().cpu().numpy().astype(np.float32), 0, 1)
+    gt = np.clip(ds.get_original_hr().cpu().numpy().astype(np.float32), 0, L2A_REFLECTANCE_CAP)
     gt = np.where(gt.max(axis=-1, keepdims=True) > 0, gt - off, gt)
     q = args_cli.run_dir / "qgis"
     sr, bil = read(q / "sr_pred.tif"), read(q / "s2_bilinear.tif")
