@@ -2,75 +2,79 @@
 
 Working title (provisional):
 
-> **HG-SuperF: Scalable Test-Time Multi-Image Super-Resolution for National Sentinel-2 Maps**
+> **HG-SuperF for National Sentinel-2 Maps and Thin-Structure Segmentation**
 
-Venue: TBD (remote sensing / geospatial ML).  
-Evidence freeze: [`results/`](results/) · Method: [`../docs/METHOD.md`](../docs/METHOD.md) · Ops: [`../docs/PRODUCTION.md`](../docs/PRODUCTION.md).
+Venue: IEEE JSTARS-style (remote sensing).  
+Evidence: SR scale → [`results/`](results/) · Method → [`../docs/METHOD.md`](../docs/METHOD.md) · Ops → [`../docs/PRODUCTION.md`](../docs/PRODUCTION.md) · Downstream → `production/segbench/stratified/`.
 
 ---
 
-## One-sentence pitch
+## Dual pitch
 
-We replace Fourier-feature SuperF with an Instant-NGP hashgrid and fused-k tiling so **test-time MISR SR becomes cheap enough for national 2.5 m Sentinel-2 maps**, and we evaluate on **real NIB orthophotos**—not SEN2NAIP.
+1. **Engineering / scale** — Instant-NGP hashgrid test-time MISR SR fast enough for national **2.5 m** Sentinel-2 delivery (vs Fourier at operational AOI sizes; fused-k tiling; production mosaic path), evaluated on real NIB orthophotos.
+2. **Downstream utility** — SR products tested on **thin-structure segmentation** (roads + buildings, FKB width bins thin / medium / wide) against bilinear, native 10 m, and temporal early-fusion on frozen Sør-Varanger.
 
 ## Contributions (map to sections)
 
-| # | Claim | Where in paper | Evidence status |
+| # | Claim | Where | Evidence |
 |--|--|--|--|
-| C1 | **HG-SuperF**: hashgrid INR + physical S2 MTF + LR-only early stop | §3 Method | Locked recipe in METHOD |
-| C2 | **Scalability**: hash ≫ Fourier at national AOI size; k4 is speed/quality knee; LR512 is the ops sweet spot | §4 Experiments | `paper_ablations.json`, fair Fourier track |
-| C3 | **Real MISR eval** on Norwegian NIB AOIs (+ bilinear) | §4.1–4.2 | 7-city B0 done; **17-AOI table still TODO** |
-| C4 | **National-scale pipeline** (tile → train → mosaic) + clear-day scheduling | §4.4 / §5 | Production path + Norway heatmap + complete 438-cell `32VNM` GeoTIFF. **Finding:** freeze closest cell-SCL≤2% day as identity or mosaics show a 5.12 km brightness grid. **Delivery:** ICM (5% slack to seasonal primary) + ramp leftover date cuts. Colour/overlap/halo → appendix. Wall-to-wall Norway remains. |
+| C1 | **HG-SuperF** recipe: hashgrid INR + physical S2 MTF + fused-k + production without HR fit target | §4 | Locked recipe in METHOD |
+| C2 | **Scalability**: hash vs Fourier vs bilinear across AOI / nested subsample sizes; k4 knee; LR512 ops default | §4, §6 | Nested + fair Fourier + ablations |
+| C3 | **Segbench** protocol: 1 m FKB → 2.5 m labels; width bins; SV-matched stratified train/val; frozen SV test | §5 | `segbench_*` bundles + split JSON |
+| C4 | **Downstream**: shared U-Net on HG-SuperF / bilinear / base10 / temporal (+ Fourier SuperF if products exist); IoU + structure metrics | §6.4 | Stratified SV scores |
 
-**Non-claims (do not write):**
-- “Hash always beats Fourier” without the fair small-AOI caveat.
-- SEN2* leaderboard numbers.
-- Raising hash capacity as a quality story.
+**Non-claims:** no blanket “hash always beats Fourier”; no SEN2* leaderboard; no verified 2.5 m optical resolution.
 
 ---
 
 ## Section plan
 
-1. **Abstract** — problem (national 2.5 m), gap (test-time SR too slow / Fourier unhappy at large AOIs), method (hash + k4 + holdout stop), result headline (≈80 s/AOI, ~10 h/MGRS-class extrapolate; beats bil on 7 NIB cities).
-2. **Introduction** — national mapping need; MISR test-time SR lineage (SuperF); scalability bottleneck; contributions list.
-3. **Related work** — single-image S2 SR; MISR / multi-date fusion; INR / Instant-NGP; operational mosaic pipelines.
-4. **Method (HG-SuperF)** — forward model; hashgrid; fused-k; `s2_psf_m`; Charbonnier; spatial LR holdout early stop; production without HR.
-5. **Experiments**
-   - Setup: 7 frozen cities (+17 later); metrics LPIPS/PSNR/SSIM + **time + VRAM + h/MGRS**.
-   - Main table: B0 vs bilinear vs B1 (harsh Fourier@512).
-   - Fair Fourier: F vs H by AOI size (64→512) and scale.
-   - k tiling Pareto (B2).
-   - AOI size ladder (S_aoi*) + nested complete-HR ladder (throughput vs quality).
-   - Ablations B3/B4 (short).
-   - National demo / clear-day heatmap (figures).
-6. **Discussion** — when Fourier still works; affine validity vs AOI size; cloud floor; limitations.
-7. **Conclusion**
+1. **Abstract**
+2. **Introduction** — national 2.5 m; thin structures; SuperF lineage; cost + utility gaps; contributions
+3. **Related work** — S2 SR / MISR / SuperF; mosaicking; road–building extraction; SR-for-downstream
+4. **Scalable HG-SuperF** — forward model; hashgrid; fused-k; production path (seams → appendix)
+5. **Thin-structure segmentation benchmark** — labels/width taxonomy; splits; inputs; shared U-Net; metrics
+6. **Experiments**
+   - **6.1 Setup**
+   - **6.2 Named-site / main SR quality–cost** (HG vs bilinear; Fourier@large-AOI control as needed)
+   - **6.3 Nested / subsample field-size study** — same geographic parents, LR64 / 128 / 256 / 512 children  
+     **Main table columns: bilinear · Fourier SuperF · HG-SuperF** (quality + time / throughput)  
+     This is the subsample experiment (not the downstream table).
+   - **6.4 Downstream thin-structure segmentation** (~Experiment 4) — SV table: base10 / bilinear / HG-SuperF / temporal (+ Fourier SuperF if available); structure + width-bin analysis; fair qualitative
+   - **6.5 National demo / mosaic** — figures
+7. **Discussion**
+8. **Conclusion**
+9. **Appendix** — seams; protocol/reproducibility; extra qualitative
 
 ---
 
-## Figure / table wishlist
+## Nested / subsample table (Experiment ~2–3 in manuscript numbering)
 
-| ID | Content | Data ready? |
-|--|--|--|
-| T1 | 7-city main results (B0, bil, B1) + s/AOI + h/MGRS | Yes (VRAM TBD backfill) |
-| T2 | Fair Fourier vs hash by AOI (Asker) | Yes (merge s2 into cite set) |
-| T3 | k1/k2/k4/full Pareto | Yes (sanity-check B2_k1 time) |
-| T4 | S_aoi 256→2048 Asker | Yes |
-| T5 | Nested size ladder project means | Partial (nest64 still finishing) |
-| F1 | Method diagram (INR → affine → PSF → LR loss) | Draw |
-| F2 | LPIPS vs seconds Pareto | From JSON |
-| F3 | Same-spot visual 64/128/256/512 | Scriptable, no GPU |
-| F4 | Norway clear-count heatmap | Almost (1 tile gap) |
-| F5 | Mosaic delivery: independent 2% vs ICM+ramp (32VNM 143-cell block) | `production/seams/32VNM_stack/delivery_icm_ramp.png` |
-| F6 | Full 32VNM granule: independent 2% vs ICM+ramp (438 cells) | `production/seams/32VNM_full/full_granule_delivery.png` |
-| A1 | Seam appendix: colour affine, overlap feather/Laplacian, halo, 3×3 | `paper/APPENDIX_SEAMS.md` |
+Same LR512 parent footprints; assemble children to parent grid; fixed evaluator per parent.
+
+| Train field | Bilinear | Fourier SuperF | HG-SuperF |
+|--|--:|--:|--:|
+| LR64 | … | … | … |
+| LR128 | … | … | … |
+| LR256 | … | … | … |
+| LR512 | … | … | … |
+
+Report LPIPS (and PSNR/SSIM as needed) **and** optimization time / area throughput. Story: Fourier can compete on small chips; hash holds as field size grows toward the national schedule.
+
+**Open work:** run / refresh Fourier SuperF on the nested subsample grid under the current fixed-budget protocol so the table is three-way, not hash-vs-bilinear only.
 
 ---
 
-## Writing order (while GPUs busy)
+## Downstream table (~Experiment 4)
 
-1. ~~Abstract + Intro framing~~ (drafted).
-2. ~~Method § in SuperF style~~ (`DRAFT.md` §3 — shared INR, hashgrid, MTF, holdout, fused-k).
-3. Results narrative + T1–T4 from `paper/results/`.
-4. Related work (literature pass; cite SuperF arXiv:2512.09115).
-5. Fill gaps when GPUs free: 17-AOI table, VRAM, nest64 final, national block.
+Shared U-Net; frozen SV test. Columns: **base10 · bilinear · HG-SuperF · temporal** (add Fourier SuperF only once nested/main SR products are locked and if bandwidth allows). Metrics: IoU + boundary / excess / thin-fill / width recall.
+
+---
+
+## Writing order
+
+1. Lock this outline.
+2. Nested three-way table (bilinear / Fourier / HG) under current protocol.
+3. Scaling narrative §6.2–6.3 from `paper/results/` + nested refresh.
+4. Downstream §6.4 once stratified scores are frozen.
+5. Abstract / conclusion last.

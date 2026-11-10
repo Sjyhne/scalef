@@ -1,5 +1,7 @@
 # Paper
 
+Dual focus: **scalable HG-SuperF** for national 2.5 m maps, and **thin-structure segmentation** (roads/buildings, width bins) downstream. Nested/subsample field-size tables compare bilinear · Fourier SuperF · HG-SuperF; downstream is a later experiment. See [`OUTLINE.md`](OUTLINE.md).
+
 | Path | Role |
 |--|--|
 | [`OUTLINE.md`](OUTLINE.md) | Claims, section plan, figure/table wishlist |
