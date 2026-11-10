@@ -37,31 +37,19 @@ Evidence: SR scale → [`results/`](results/) · Method → [`../docs/METHOD.md`
 6. **Experiments**
    - **6.1 Setup**
    - **6.2 Named-site / main SR quality–cost** (HG vs bilinear; Fourier@large-AOI control as needed)
-   - **6.3 Nested / subsample field-size study** — same geographic parents, LR64 / 128 / 256 / 512 children  
-     **Main table columns: bilinear · Fourier SuperF · HG-SuperF** (quality + time / throughput)  
-     This is the subsample experiment (not the downstream table).
-   - **6.4 Downstream thin-structure segmentation** (~Experiment 4) — SV table: base10 / bilinear / HG-SuperF / temporal (+ Fourier SuperF if available); structure + width-bin analysis; fair qualitative
-   - **6.5 National demo / mosaic** — figures
+   - **6.2 Input size** — Fourier vs hash-grid across LR64…1024 (Overleaf `tab:area`)
+   - **6.3 Full-field subsampling** — pixel fraction × LR patch size × **Fourier and hash-grid** (Overleaf `tab:sampling`)
+   - **6.4 Hash-grid ablation**
+   - **6.5 Downstream thin-structure segmentation** — size-class table (Overleaf `tab:segmentation`)
 7. **Discussion**
 8. **Conclusion**
 9. **Appendix** — seams; protocol/reproducibility; extra qualitative
 
 ---
 
-## Nested / subsample table (Experiment ~2–3 in manuscript numbering)
+## Full-field subsampling table (Overleaf Results)
 
-Same LR512 parent footprints; assemble children to parent grid; fixed evaluator per parent.
-
-| Train field | Bilinear | Fourier SuperF | HG-SuperF |
-|--|--:|--:|--:|
-| LR64 | … | … | … |
-| LR128 | … | … | … |
-| LR256 | … | … | … |
-| LR512 | … | … | … |
-
-Report LPIPS (and PSNR/SSIM as needed) **and** optimization time / area throughput. Story: Fourier can compete on small chips; hash holds as field size grows toward the national schedule.
-
-**Open work:** run / refresh Fourier SuperF on the nested subsample grid under the current fixed-budget protocol so the table is three-way, not hash-vs-bilinear only.
+Matches `ScaleF_Overleaf/main.tex` `tab:sampling`: for each pixels-seen / patch-size cell, report **Fourier** and **Hash grid** rows (PSNR, SSIM, LPIPS, ZNCC, speed).
 
 ---
 
